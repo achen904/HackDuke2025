@@ -1,79 +1,140 @@
 import time
-import sqlite3
 import subprocess
 import sys
-import os
-from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 def install_missing_packages():
-    packages = ["playwright", "beautifulsoup4"]
+    """Ensures all required packages are installed."""
+    packages = ["playwright"]
     for package in packages:
         try:
             __import__(package)
         except ImportError:
             subprocess.check_call([sys.executable, "-m", "pip", "install", package])
 
-def scrape_restaurant_names():
+def scrape_marketplace_data():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         page = browser.new_page()
         
+        # Go to NetNutrition website
         menu_url = "https://netnutrition.cbord.com/nn-prod/Duke"
         page.goto(menu_url)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_load_state("networkidle")
-        
-        try:
-            page.wait_for_selector("#cbo_nn_unitDataList .col-12 .card.unit", timeout=20000)
-        except Exception as e:
-            print("Error: Could not find restaurant elements. Inspecting HTML...")
-            print(page.content())
-            return []
-        
-        html_content = page.content()
-        soup = BeautifulSoup(html_content, "html.parser")
-        
-        restaurants = []
-        for card in soup.select("#cbo_nn_unitDataList .col-12 .card.unit"):
-            name_element = card.select_one("a")
-            status_element = card.select_one(".badge")
-            
-            if name_element and status_element:
-                name = name_element.text.strip()
-                status = status_element.text.strip()
-                restaurants.append({"name": name, "status": status})
-        
-        print("Found Restaurants:", restaurants)
-        
-        browser.close()
-        return restaurants
 
-def store_restaurants_in_db(restaurants):
-    conn = sqlite3.connect("duke_nutrition.db")
-    cursor = conn.cursor()
-    
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS restaurants (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            status TEXT
-        )
-    ''')
-    
-    for restaurant in restaurants:
-        cursor.execute('''
-            INSERT INTO restaurants (name, status) VALUES (?, ?)
-        ''', (restaurant["name"], restaurant["status"]))
-    
-    conn.commit()
-    conn.close()
-    print("Restaurant data successfully stored in database.")
+        try:
+            # Handle the modal if present
+            modal = page.locator("#cbo_nn_mobileDisclaimer")
+            if modal.is_visible():
+                close_button = modal.locator("button.close")
+                if close_button.is_visible():
+                    close_button.click()
+                    page.wait_for_timeout(1000)
+
+            # Click into Marketplace
+            marketplace_link = page.locator("a.text-white:has-text('Marketplace')").first
+            marketplace_link.wait_for(state="visible", timeout=15000)
+            marketplace_link.scroll_into_view_if_needed()
+            marketplace_link.click(timeout=10000)
+            page.wait_for_load_state("networkidle")
+            time.sleep(3)
+        except Exception as e:
+            print("Error: Could not find Marketplace link.", e)
+            return {}
+
+        # Meal XPaths
+        meal_xpaths = {
+            "Saturday": {
+                "Brunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[1]/section/div/div/div[1]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[1]/section/div/div/div[2]/a"
+            },
+            "Sunday": {
+                "Brunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[2]/section/div/div/div[1]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[2]/section/div/div/div[2]/a"
+            },
+            "Monday": {
+                "Breakfast": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[3]/section/div/div/div[1]/a",
+                "Lunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[3]/section/div/div/div[2]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[3]/section/div/div/div[3]/a"
+            },
+            "Tuesday": {
+                "Breakfast": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[4]/section/div/div/div[1]/a",
+                "Lunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[4]/section/div/div/div[2]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[4]/section/div/div/div[3]/a"
+            },
+            "Wednesday": {
+                "Breakfast": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[5]/section/div/div/div[1]/a",
+                "Lunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[5]/section/div/div/div[2]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[5]/section/div/div/div[3]/a"
+            },
+            "Thursday": {
+                "Breakfast": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[6]/section/div/div/div[1]/a",
+                "Lunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[6]/section/div/div/div[2]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[6]/section/div/div/div[3]/a"
+            },
+            "Friday": {
+                "Breakfast": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[7]/section/div/div/div[1]/a",
+                "Lunch": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[7]/section/div/div/div[2]/a",
+                "Dinner": "/html/body/div/div[2]/form/div/div[2]/main/div[3]/section/div[2]/div/section/div/div[7]/section/div/div/div[3]/a"
+            }
+        }
+
+        marketplace_data = {}
+
+        for day, meals in meal_xpaths.items():
+            marketplace_data[day] = {}
+            for meal_name, xpath in meals.items():
+                try:
+                    print(f"\nProcessing {day} - {meal_name}...")
+
+                    # Click the meal
+                    meal_button = page.locator(f"xpath={xpath}")
+                    if not meal_button.is_visible():
+                        print(f"Meal button for {day} {meal_name} not visible.")
+                        continue
+
+                    meal_button.click()
+                    page.wait_for_load_state("networkidle")
+                    time.sleep(3)
+
+                    # Extract all food items in the meal
+                    food_items = page.locator(".cbo_nn_itemHover").all_text_contents()
+                    marketplace_data[day][meal_name] = food_items
+
+                    print(f"  -> Found {len(food_items)} items for {meal_name} on {day}")
+
+                    # **Click "Back" button instead of using `go_back()`**
+                    back_button = page.locator("a.breadcrumb-item.text-primary:has-text('Back')")
+                    if back_button.is_visible():
+                        back_button.click()
+                        page.wait_for_load_state("networkidle")
+                        time.sleep(3)
+                    else:
+                        print(f"Warning: 'Back' button not found for {day} {meal_name}.")
+                        break  # Stop processing if navigation fails
+
+                except Exception as e:
+                    print(f"Error processing {day} {meal_name}: {e}")
+                    continue
+
+        browser.close()
+
+        # Print structured results
+        for day, meals in marketplace_data.items():
+            print(f"\n{day}:")
+            for meal, foods in meals.items():
+                print(f"  {meal}:")
+                if foods:
+                    for food in foods:
+                        print(f"    - {food}")
+                else:
+                    print("    No items found")
+
+        return marketplace_data
 
 if __name__ == "__main__":
     install_missing_packages()
-    restaurant_data = scrape_restaurant_names()
-    if restaurant_data:
-        store_restaurants_in_db(restaurant_data)
-    else:
-        print("No restaurants scraped.")
+    marketplace_data = scrape_marketplace_data()
+    if not marketplace_data:
+        print("No data scraped for Marketplace.")
