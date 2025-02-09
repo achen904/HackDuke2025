@@ -8,10 +8,16 @@ st.markdown("""
     <style>
     /* Main page layout adjustment */
     .main > div {
-        padding-bottom: 80px !important;
+        padding-bottom: 10px !important;
+        overflow-y: auto;
+    }
+    [data-testid="column"]>div>div>div>div>div {
+        overflow: auto;
+        height: 70vh;
     }
 
     .chat-container {
+        height: 5vh;
         padding-bottom: 100px !important;
         max-height: calc(100vh - 160px) !important;
         overflow-y: auto;
@@ -27,6 +33,7 @@ st.markdown("""
         margin: 10px 0;
         max-width: 80%;
         margin-left: auto;
+        overflow-y:auto;
     }
 
     .bot-message {
@@ -36,6 +43,7 @@ st.markdown("""
         border-radius: 20px;
         margin: 10px 0;
         max-width: 80%;
+        overflow-y:auto;
     }
 
     /* Fixed input container */
@@ -87,7 +95,7 @@ def get_response(user_input):
     return response.json().get("response", "Error from backend")
 
 # Chat messages container
-with st.container():
+with st.container(height=500):
     st.markdown("<div class='chat-container'>", unsafe_allow_html=True)
     for message in st.session_state.messages:
         if "user" in message:
@@ -95,6 +103,15 @@ with st.container():
         else:
             st.markdown(f"<div class='bot-message'>{message['bot']}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
+
+scroll_script = """
+<script>
+    var container = window.parent.document.querySelector('.element-container');
+    container.scrollTop = container.scrollHeight;
+</script>
+"""
+
+st.markdown(scroll_script, unsafe_allow_html=True)
 
 # Fixed input form at bottom
 with st.container():
@@ -112,12 +129,28 @@ with st.container():
         
         with col2:
             submitted = st.form_submit_button("↑")
+
+       
         
         if submitted and user_input.strip():
             st.session_state.messages.append({"user": user_input})
             bot_response = get_response(user_input)
             st.session_state.messages.append({"bot": bot_response})
             st.rerun()
+
+        css='''
+        <style>
+            section.main>div {
+                padding-bottom: 1rem;
+            }
+            [data-testid="column"]>div>div>div>div>div {
+                overflow: auto;
+                height: 70vh;
+            }
+        </style>
+        '''
+
+        st.markdown(css, unsafe_allow_html = True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Enhanced JavaScript with better scroll handling
