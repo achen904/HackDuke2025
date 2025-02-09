@@ -18,31 +18,27 @@ def setup_database():
     conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
     
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS meals (
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE
-        )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS locations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            meal_id INTEGER,
             name TEXT,
-            FOREIGN KEY(meal_id) REFERENCES meals(id)
+            calories INTEGER,
+            total_fat INTEGER,
+            saturated_fat INTEGER,
+            trans_fat INTEGER,
+            cholesterol INTEGER,
+            sodium INTEGER,
+            total_carbs INTEGER,
+            dietary_fiber INTEGER,
+            total_sugars INTEGER,
+            added_sugars INTEGER,
+            protein INTEGER,
+            calcium INTEGER,
+            iron INTEGER,
+            potassium INTEGER
+            
         )
-    """)
-    
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS food_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            location_id INTEGER,
-            name TEXT UNIQUE,
-            nutrition_info TEXT,
-            FOREIGN KEY(location_id) REFERENCES locations(id)
-        )
-    """)
+    ''')
 
     conn.commit()
     conn.close()
@@ -54,21 +50,11 @@ def save_to_database(meal, location, food_name, nutrition_info):
     conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
 
-    # Insert meal if not exists
-    cursor.execute("INSERT OR IGNORE INTO meals (name) VALUES (?)", (meal,))
-    cursor.execute("SELECT id FROM meals WHERE name=?", (meal,))
-    meal_id = cursor.fetchone()[0]
-
-    # Insert location if not exists
-    cursor.execute("INSERT OR IGNORE INTO locations (meal_id, name) VALUES (?, ?)", (meal_id, location))
-    cursor.execute("SELECT id FROM locations WHERE meal_id=? AND name=?", (meal_id, location))
-    location_id = cursor.fetchone()[0]
-
+   
     # Insert food item
-    cursor.execute("""
-        INSERT INTO food_items (location_id, name, nutrition_info)
-        VALUES (?, ?, ?)
-    """, (location_id, food_name, nutrition_info))
+    cursor.execute('''
+            INSERT INTO items (name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, calcium, iron, potassium) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ''', (nutrition_info[0], nutrition_info[1], nutrition_info[2], nutrition_info[3], nutrition_info[4], nutrition_info[5], nutrition_info[6], nutrition_info[7], nutrition_info[8], nutrition_info[9], nutrition_info[12], nutrition_info[10], nutrition_info[11], 0, 0))
 
     conn.commit()
     conn.close()
@@ -179,14 +165,25 @@ def extract_nutrition_info(page):
         # Extract individual nutrition facts
         nutrition_data = page.evaluate("""
             () => {
-                let rows = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
+                let rows1 = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
                 let data = [];
+                rows1.forEach(row => {
+                    let label = row.querySelector("td.cbo_nn_LabelHeader");
+                    if (label) {
+                        let text = label.textContent.trim();
+                        if (text) {
+                            data.push(text);
+                        }
+                    }
+                });
+                                       
+                let rows = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
                 rows.forEach(row => {
                     let label = row.querySelector("td > div.inline-div-right.bold-text.font-22");
                     if (label) {
                         let text = label.textContent.trim();
                         if (text) {
-                            data.push(text);
+                            data.push(parseInt(text));
                         }
                     }
                 });
@@ -198,7 +195,29 @@ def extract_nutrition_info(page):
                         let text = label.textContent.trim();
                         if (text) {
                             let matches = text.match(/\d+/g);
-                            data.push(matches[0]);
+                            if (matches){
+                                data.push(parseInt(matches[0]));
+                            }
+                            else {
+                                data.push(0);
+                            }
+                        }
+                    }
+                });
+                                       
+                let rows3 = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
+                rows3.forEach(row => {
+                    let label = row.querySelector("td > div > div.inline-div-left.addedSugarRow > span");
+                    if (label) {
+                        let text = label.textContent.trim();
+                        if (text) {
+                            const arr1 = text.split(" ");
+                            if (arr1[1] == 'NA'){
+                                data.push(0);
+                            }
+                            else {
+                                data.push(parseInt(arr[1]));
+                            }
                         }
                     }
                 });
@@ -210,7 +229,6 @@ def extract_nutrition_info(page):
         if not nutrition_data:
             return ("No nutrition info available",)
 
-        print(tuple(nutrition_data))
         # Convert list to tuple for consistency
         return tuple(nutrition_data)
 
