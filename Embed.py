@@ -5,10 +5,10 @@ import numpy as np;
 
 
 # Connect to the SQLite database
-conn = sqlite3.connect('duke_nutrition.db')
+conn = sqlite3.connect('dummy.db')
 cursor = conn.cursor()
 
-# Fetch data from food table (replace with your actual table and columns)
+# Fetch data from Net Nutrition
 cursor.execute("SELECT name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, calcium, iron, potassium FROM items")
 data = cursor.fetchall()
 
@@ -33,27 +33,13 @@ embeddings = model.encode(food_descriptions)
 # Convert embeddings to numpy array
 embeddings_np = np.array(embeddings).astype('float32')
 
-# Create a FAISS index (using L2 distance metric)
-index = faiss.IndexFlatL2(embeddings_np.shape[1])
+faiss.normalize_L2(embeddings_np)
+
+# Create a FAISS index (using Inner Product distance metric)
+index = faiss.IndexFlatIP( embeddings_np.shape[1])
 index.add(embeddings_np)
 
-# User preferences or dietary restrictions
-user_preference = "high protein, low carb"
-
-# Convert the user preference into an embedding
-user_preference_embedding = model.encode([user_preference]).astype('float32')
-
-# Search for food items that match the user preference (top 5 results)
-D, I = index.search(user_preference_embedding, 5)
-
-# Retrieve matching food names and nutritional info
-recommended_foods = [(food_names[i], nutritional_info[i]) for i in I[0]]
-
-# Output the recommended foods for the meal plan
-print("Recommended Foods:", recommended_foods)
-
-
-def create_meal_plan(user_preferences, num_meals=3):
+def create_meal_plan(user_preferences, num_meals):
     # Convert user preferences to embedding
     user_pref_embedding = model.encode([user_preferences]).astype('float32')
 
@@ -67,16 +53,26 @@ def create_meal_plan(user_preferences, num_meals=3):
         meal_plan.append({
             'food': food_item,
             'calories': nutrition[0],
-            'protein': nutrition[1],
-            'fat': nutrition[2],
-            'carbs': nutrition[3]
+            'total fat': nutrition[1],
+            'saturated fat': nutrition[2],
+            'trans-fat': nutrition[3],
+            'cholesterol': nutrition[4],
+            'sodium': nutrition[5],
+            'total carbs': nutrition[6],
+            'dietary fiber': nutrition[7],
+            'total sugars': nutrition[8],
+            'added sugars': nutrition[9],
+            'protein': nutrition[10],
+            'calcium': nutrition[11],
+            'iron': nutrition[12],
+            'potassium': nutrition[13],
         })
 
     return meal_plan
 
 # Example user input: high-protein, low-carb diet
-user_input = "high protein, low carb"
-meal_plan = create_meal_plan(user_input)
+user_input = "low calories"
+meal_plan = create_meal_plan(user_input,1)
 
 # Output the meal plan
 print("Your meal plan:")

@@ -5,35 +5,34 @@ def store_nutrition(items):
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id DOUBLE PRIMARY KEY AUTOINCREMENT,
             name TEXT,
-            calories INTEGER,
-            total_fat INTEGER,
-            saturated_fat INTEGER,
-            trans_fat INTEGER,
-            cholesterol INTEGER,
-            sodium INTEGER,
-            total_carbs INTEGER,
-            dietary_fiber INTEGER,
-            total_sugars INTEGER,
-            added_sugars INTEGER,
-            protein INTEGER,
-            calcium INTEGER,
-            iron INTEGER,
-            potassium INTEGER
-            
+            calories DOUBLE,
+            total_fat DOUBLE,
+            saturated_fat DOUBLE,
+            trans_fat DOUBLE,
+            cholesterol DOUBLE,
+            sodium DOUBLE,
+            total_carbs DOUBLE,
+            dietary_fiber DOUBLE,
+            total_sugars DOUBLE,
+            added_sugars DOUBLE,
+            protein DOUBLE,
+            calcium DOUBLE,
+            iron DOUBLE,
+            potassium DOUBLE
         )
     ''')
     
     for food in items:
         print(food)
         cursor.execute('''
-            INSERT INTO restaurants (name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugar, protein, calcium, iron, potassium) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT INTO items (name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugar, protein, calcium, iron, potassium) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ''', (food["name"], food["calories"], food["total_fat"], food["saturated_fat"], food["trans_fat"], food["cholesterol"], food["sodium"], food["total_carbs"], food["dietary_fiber"], food["total_sugars"], food["added_sugars"], food["protein"], food["calcium"], food["iron"], food["potassium"]))
     
     conn.commit()
     conn.close()
-    print("Restaurant data successfully stored in database.")
+    print("Item data successfully stored in database.")
 
 if __name__ == "__main__":
     install_missing_packages()

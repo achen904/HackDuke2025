@@ -1,7 +1,7 @@
 import sqlite3
 
 def store_nutrition(items):
-    conn = sqlite3.connect("duke_nutrition.db")
+    conn = sqlite3.connect("dummy.db")
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
@@ -33,7 +33,7 @@ def store_nutrition(items):
     
     conn.commit()
     conn.close()
-    print("Restaurant data successfully stored in database.")
+    print("Item data successfully stored in database.")
 
 def main():
     items = [{"name": "Roasted Garlic Rubbed Chicken", "calories": 390, "total_fat": 25, "saturated_fat": 6, "trans_fat": 0, "cholesterol": 125, "sodium": 980, "total_carbs": 1, "dietary_fiber": 0, "total_sugars": 0, "added_sugars": 0, "protein": 39, "calcium": 39, "iron": 2, "potassium": 780},
