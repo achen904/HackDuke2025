@@ -104,12 +104,23 @@ def scrape_marketplace_data():
             page.wait_for_load_state("networkidle")
             time.sleep(2)
 
+            page.evaluate("""
+                () => {
+                    let buttons = document.querySelectorAll("#itemPanel > section > div.table-responsive.pt-3 > table > tbody > tr > td > div");
+                    buttons.forEach(button => {
+                        if (button) {
+                            button.click();
+                        }
+                    });
+                }
+            """)
+
             visited_foods = set()
 
             for location_xpath in location_xpaths:
                 try:
                     location_element = page.locator(f"xpath={location_xpath}")
-                    location_element.click(force=True)
+                    #location_element.click(force=True)
                     page.wait_for_load_state("networkidle")
                     time.sleep(1)
 
