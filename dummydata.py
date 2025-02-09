@@ -1,7 +1,7 @@
 import sqlite3
 
 def store_nutrition(items):
-    conn = sqlite3.connect("dummy.db")
+    conn = sqlite3.connect("dummy2.db")
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
@@ -40,9 +40,7 @@ def main():
              {"name": "Hush Puppies", "calories": 230, "total_fat": 11, "saturated_fat": 2, "trans_fat": 0, "cholesterol": 10, "sodium": 430, "total_carbs": 28, "dietary_fiber": 3, "total_sugars": 6, "added_sugars": 0, "protein": 1, "calcium": 89, "iron": 1, "potassium": 0},
              {"name": "Roasted Zucchini", "calories": 60, "total_fat": 6, "saturated_fat": 1, "trans_fat": 0, "cholesterol": 0, "sodium": 630, "total_carbs": 3, "dietary_fiber": 1, "total_sugars": 2, "added_sugars": 0, "protein": 1, "calcium": 19, "iron": 0, "potassium": 280}]
     store_nutrition(items)
-    print("hello")
 
 if __name__ == "__main__":
-    print("hi")
     main()
         

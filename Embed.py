@@ -3,13 +3,11 @@ from sentence_transformers import SentenceTransformer
 import faiss;
 import numpy as np;
 
-
-# Connect to the SQLite database
-conn = sqlite3.connect('dummy.db')
+conn = sqlite3.connect('dummy1.db')
 cursor = conn.cursor()
 
 # Fetch data from Net Nutrition
-cursor.execute("SELECT name, calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, calcium, iron, potassium FROM items")
+cursor.execute("SELECT name, calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, iron_rank, potassium_rank FROM items")
 data = cursor.fetchall()
 
 # Close the connection
@@ -24,8 +22,11 @@ nutritional_info = [entry[1:] for entry in data]  # Excluding food name
 model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
 # Combine food name with nutritional information for more context
-food_descriptions = [f"{name} - Calories: {cal}, Total Fat: {tf}, Saturated Fat: {sf}, Trans-Fat: {trf}, Cholesterol: {ch}, Sodium: {sodium}, Total Carbs: {tc}, Dietary Fiber:{df}, Total Sugars:{ts}, Added Sugars:{ass}, Protein:{prot}, Calcium:{calc}, Iron:{iron}, Potassium:{pot}" 
-                     for name, (cal, tf, sf, trf, ch, sodium, tc, df, ts, ass, prot, calc, iron, pot) in zip(food_names, nutritional_info)]
+#food_descriptions = [f"{name} - Calories: {cal}, Total Fat: {tf}, Saturated Fat: {sf}, Trans-Fat: {trf}, Cholesterol: {ch}, Sodium: {sodium}, Total Carbs: {tc}, Dietary Fiber:{df}, Total Sugars:{ts}, Added Sugars:{ass}, Protein:{prot}, Calcium:{calc}, Iron:{iron}, Potassium:{pot}" 
+#                     for name, (cal, tf, sf, trf, ch, sodium, tc, df, ts, ass, prot, calc, iron, pot) in zip(food_names, nutritional_info)]
+
+food_descriptions = [f"{cal[0]} Calories, {cal[1]} Total Fat, {cal[2]} Saturated Fat, {cal[3]} Trans-Fat, {cal[4]} Cholesterol, {cal[5]} Sodium, {cal[6]} Total Carbs, {cal[7]} Dietary Fiber, {cal[8]} Total Sugars, {cal[9]} Added Sugars, {cal[10]} Protein, {cal[11]} Calcium, {cal[12]} Iron, {cal[13]} Potassium" 
+                     for cal in nutritional_info]
 
 # Generate embeddings
 embeddings = model.encode(food_descriptions)
@@ -36,7 +37,7 @@ embeddings_np = np.array(embeddings).astype('float32')
 faiss.normalize_L2(embeddings_np)
 
 # Create a FAISS index (using Inner Product distance metric)
-index = faiss.IndexFlatIP( embeddings_np.shape[1])
+index = faiss.IndexFlatIP(embeddings_np.shape[1])
 index.add(embeddings_np)
 
 def create_meal_plan(user_preferences, num_meals):
@@ -71,7 +72,7 @@ def create_meal_plan(user_preferences, num_meals):
     return meal_plan
 
 # Example user input: high-protein, low-carb diet
-user_input = "low calories"
+user_input = "Low Calories"
 meal_plan = create_meal_plan(user_input,1)
 
 # Output the meal plan
