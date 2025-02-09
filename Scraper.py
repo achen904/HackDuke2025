@@ -3,6 +3,7 @@ import subprocess
 import sys
 import sqlite3
 from playwright.sync_api import sync_playwright
+import os
 
 def install_missing_packages():
     """Ensure required packages are installed."""
@@ -20,7 +21,6 @@ def setup_database():
     
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
             calories INTEGER,
             total_fat INTEGER,
@@ -35,8 +35,7 @@ def setup_database():
             protein INTEGER,
             calcium INTEGER,
             iron INTEGER,
-            potassium INTEGER
-            
+            potassium INTEGER           
         )
     ''')
 
@@ -237,6 +236,9 @@ def extract_nutrition_info(page):
         return ("Nutrition info extraction failed",)
     
 if __name__ == "__main__":
+    os.remove("duke_nutrition.db")
+    f = open("duke_nutrition.db", "x")
+
     install_missing_packages()
     setup_database()
     scrape_marketplace_data()
