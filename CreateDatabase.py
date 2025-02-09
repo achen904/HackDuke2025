@@ -34,10 +34,3 @@ def store_nutrition(items):
     conn.close()
     print("Item data successfully stored in database.")
 
-if __name__ == "__main__":
-    install_missing_packages()
-    restaurant_data = scrape_restaurant_names()
-    if restaurant_data:
-        store_restaurants_in_db(restaurant_data)
-    else:
-        print("No restaurants scraped.")
