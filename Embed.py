@@ -21,10 +21,6 @@ nutritional_info = [entry[1:] for entry in data]  # Excluding food name
 # Load pre-trained sentence embedding model
 model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
-# Combine food name with nutritional information for more context
-#food_descriptions = [f"{name} - Calories: {cal}, Total Fat: {tf}, Saturated Fat: {sf}, Trans-Fat: {trf}, Cholesterol: {ch}, Sodium: {sodium}, Total Carbs: {tc}, Dietary Fiber:{df}, Total Sugars:{ts}, Added Sugars:{ass}, Protein:{prot}, Calcium:{calc}, Iron:{iron}, Potassium:{pot}" 
-#                     for name, (cal, tf, sf, trf, ch, sodium, tc, df, ts, ass, prot, calc, iron, pot) in zip(food_names, nutritional_info)]
-
 food_descriptions = [f"{cal[0]} Calories, {cal[1]} Total Fat, {cal[2]} Saturated Fat, {cal[3]} Trans-Fat, {cal[4]} Cholesterol, {cal[5]} Sodium, {cal[6]} Total Carbs, {cal[7]} Dietary Fiber, {cal[8]} Total Sugars, {cal[9]} Added Sugars, {cal[10]} Protein, {cal[11]} Calcium, {cal[12]} Iron, {cal[13]} Potassium" 
                      for cal in nutritional_info]
 

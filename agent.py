@@ -1,8 +1,10 @@
-import random
 from dotenv import load_dotenv
 from pydantic_ai import Agent, RunContext
 import os
 import sqlite3
+from sentence_transformers import SentenceTransformer
+import faiss;
+import numpy as np;
 
 load_dotenv()
 
@@ -17,8 +19,36 @@ agent = Agent(
 )
 
 @agent.tool
-def create_meal(ctx: RunContext[str]) -> str:
+def rank_foods(ctx: RunContext[str]) -> str:
+    # Connect to the SQLite database
+    conn = sqlite3.connect('dummy1.db')
+    cursor = conn.cursor()
 
+    nutrients = ["calories", "total_fat", "saturated_fat", "trans_fat", "cholesterol", "sodium", "total_carbs", "dietary_fiber", "total_sugars", "added_sugars", "protein", "calcium", "iron", "potassium"]
+
+    for nutrient in nutrients:
+        title = nutrient + "_rank"
+        addColumn =  f"ALTER TABLE items ADD COLUMN {title}"
+        cursor.execute(addColumn)
+        cursor.executescript(f"""
+        WITH ranked_product AS (
+                SELECT {nutrient}, 
+            RANK() OVER (ORDER BY {nutrient} DESC) AS price_rank,
+            COUNT(*) OVER () AS total_rows 
+            FROM items
+            )
+            UPDATE items
+            SET {title} = CASE
+                WHEN ranked_product.price_rank <= ranked_product.total_rows / 3 THEN 'High'
+                WHEN ranked_product.price_rank <= 2 * ranked_product.total_rows / 3 THEN 'Medium'
+                ELSE 'Low'
+            END
+            FROM ranked_product
+            WHERE items.{nutrient} = ranked_product.{nutrient};
+        """)
+
+@agent.tool
+def create_meal(ctx: RunContext[str]) -> str:
     conn = sqlite3.connect('dummy1.db')
     cursor = conn.cursor()
 
@@ -37,10 +67,6 @@ def create_meal(ctx: RunContext[str]) -> str:
     # Load pre-trained sentence embedding model
     model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
 
-    # Combine food name with nutritional information for more context
-    #food_descriptions = [f"{name} - Calories: {cal}, Total Fat: {tf}, Saturated Fat: {sf}, Trans-Fat: {trf}, Cholesterol: {ch}, Sodium: {sodium}, Total Carbs: {tc}, Dietary Fiber:{df}, Total Sugars:{ts}, Added Sugars:{ass}, Protein:{prot}, Calcium:{calc}, Iron:{iron}, Potassium:{pot}" 
-    #                     for name, (cal, tf, sf, trf, ch, sodium, tc, df, ts, ass, prot, calc, iron, pot) in zip(food_names, nutritional_info)]
-
     food_descriptions = [f"{cal[0]} Calories, {cal[1]} Total Fat, {cal[2]} Saturated Fat, {cal[3]} Trans-Fat, {cal[4]} Cholesterol, {cal[5]} Sodium, {cal[6]} Total Carbs, {cal[7]} Dietary Fiber, {cal[8]} Total Sugars, {cal[9]} Added Sugars, {cal[10]} Protein, {cal[11]} Calcium, {cal[12]} Iron, {cal[13]} Potassium" 
                         for cal in nutritional_info]
 
@@ -55,6 +81,9 @@ def create_meal(ctx: RunContext[str]) -> str:
     # Create a FAISS index (using Inner Product distance metric)
     index = faiss.IndexFlatIP(embeddings_np.shape[1])
     index.add(embeddings_np)
+
+    user_preferences = "High protein"
+    num_meals =3
 
     user_pref_embedding = model.encode([user_preferences]).astype('float32')
 
@@ -86,16 +115,22 @@ def create_meal(ctx: RunContext[str]) -> str:
     return (" ").join(meal_plan)
 
 
+@agent.tool
+def delete_database(db_file):
+    os.remove(db_file)  
+
+@agent.tool
+def create_database(db_file):
+    sqlite3.connect(db_file)
+
+
+
 @agent.tool  
 def get_allergens(ctx: RunContext[str]) -> str:
     """Get the player's allergens."""
     return ctx.deps
 
-def embed(ctx: RunContext[str])->str:
-    """Get the embeddings for the user preference"""
-
-
 def main():
-    dice_result = agent.run_sync("What should I eat today", deps='No Meat')  
-    print(dice_result.data)
+    meal_plan = agent.run_sync("What should I eat today", deps='No Meat')  
+    print(meal_plan.data)
     
