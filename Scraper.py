@@ -48,6 +48,8 @@ def setup_database():
     conn.close()
 
 def save_to_database(meal, location, food_name, nutrition_info):
+
+    print(nutrition_info)
     """Save extracted data into SQLite database."""
     conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
@@ -140,7 +142,7 @@ def scrape_marketplace_data():
                             # Extract nutritional facts
                             nutrition_info = extract_nutrition_info(page)
                             
-                            print(f"    🍽 {food_name} - {nutrition_info}")
+                            #print(f"    🍽 {food_name} - {nutrition_info}")
                             save_to_database(meal_name, location_element.text_content().strip(), food_name, nutrition_info)
 
                             # Close the nutrition popup
@@ -170,19 +172,52 @@ def scrape_marketplace_data():
         browser.close()
 
 def extract_nutrition_info(page):
-    """Extracts nutrition information from the popup window."""
+    """Extracts nutrition information from the popup window and returns it as a tuple."""
     try:
         page.wait_for_selector("text=Nutrition Information", state='visible', timeout=5000)
-        nutrition_info = page.evaluate("""
+
+        # Extract individual nutrition facts
+        nutrition_data = page.evaluate("""
             () => {
-                let elements = document.querySelectorAll("div#nutritionLabel div");
-                return Array.from(elements).map(e => e.textContent.trim()).join("\\n");
+                let rows = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
+                let data = [];
+                rows.forEach(row => {
+                    let label = row.querySelector("td > div.inline-div-right.bold-text.font-22");
+                    if (label) {
+                        let text = label.textContent.trim();
+                        if (text) {
+                            data.push(text);
+                        }
+                    }
+                });
+                                       
+                let rows2 = document.querySelectorAll("#nutritionLabel > div > div > table > tbody > tr");
+                rows2.forEach(row => {
+                    let label = row.querySelector("td > div > div > span:nth-child(2)");
+                    if (label) {
+                        let text = label.textContent.trim();
+                        if (text) {
+                            let matches = text.match(/\d+/g);
+                            data.push(matches[0]);
+                        }
+                    }
+                });
+                return data;
             }
         """)
-        return nutrition_info if nutrition_info else "No nutrition info available"
-    except:
-        return "Nutrition info extraction failed"
 
+
+        if not nutrition_data:
+            return ("No nutrition info available",)
+
+        print(tuple(nutrition_data))
+        # Convert list to tuple for consistency
+        return tuple(nutrition_data)
+
+    except Exception as e:
+        print(f"Error extracting nutrition info: {e}")
+        return ("Nutrition info extraction failed",)
+    
 if __name__ == "__main__":
     install_missing_packages()
     setup_database()
