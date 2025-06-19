@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 import faiss;
 import numpy as np;
 import openai
+from typing import Optional, Dict, List
 
 load_dotenv()
 
@@ -96,7 +97,12 @@ def rank_foods(ctx: RunContext[str]) -> str:
     conn.close()
 
 @agent.tool
-def create_meal(ctx: RunContext[str], preferences: str, num_meals: int = 3) -> str:
+def create_meal(
+    ctx: RunContext[str],
+    preferences: str,
+    num_meals: int = 3,
+    allowed_foods: Optional[List[str]] = None,
+) -> str:
     conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
 
@@ -110,6 +116,11 @@ def create_meal(ctx: RunContext[str], preferences: str, num_meals: int = 3) -> s
         """
     )
     data = cursor.fetchall()
+
+    # If a subset of food names is provided, filter rows early
+    if allowed_foods:
+        allowed_set = set(f.lower() for f in allowed_foods)
+        data = [row for row in data if row[0].lower() in allowed_set]
 
     # Close the connection
     conn.close()
@@ -174,7 +185,6 @@ def create_meal(ctx: RunContext[str], preferences: str, num_meals: int = 3) -> s
 
     return str(meal_plan)
 
-
 @agent.tool
 def delete_database(db_file):
     os.remove(db_file)  
@@ -183,12 +193,49 @@ def delete_database(db_file):
 def create_database(db_file):
     sqlite3.connect(db_file)
 
-
-
 @agent.tool  
 def get_allergens(ctx: RunContext[str]) -> str:
     """Get the player's allergens."""
     return ctx.deps
+
+@agent.tool
+def filter_foods(
+    ctx: RunContext[str],
+    min: Optional[Dict[str, float]] = None,
+    max: Optional[Dict[str, float]] = None,
+) -> List[str]:
+    """Return food names that satisfy all numeric constraints.
+
+    Parameters
+    ----------
+    min : dict of nutrient -> minimum value (inclusive)
+    max : dict of nutrient -> maximum value (inclusive)
+    """
+
+    min = {k.lower(): v for k, v in (min or {}).items()}
+    max = {k.lower(): v for k, v in (max or {}).items()}
+
+    conn = sqlite3.connect("duke_nutrition.db")
+    cursor = conn.cursor()
+
+    where_clauses = []
+    params: List[float] = []
+
+    for col, bound in min.items():
+        where_clauses.append(f"{col} >= ?")
+        params.append(bound)
+
+    for col, bound in max.items():
+        where_clauses.append(f"{col} <= ?")
+        params.append(bound)
+
+    where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+    cursor.execute(f"SELECT name FROM items {where_sql}", params)
+    rows = cursor.fetchall()
+    conn.close()
+
+    return [r[0] for r in rows]
 
 def main():
     """Simple CLI loop to chat with the agent while preserving context."""
@@ -223,4 +270,8 @@ def main():
 
 # Allow `python agent.py` to start the interactive chat
 if __name__ == "__main__":
-    main()
+    import sys
+    if "--debug" in sys.argv:
+        agent.to_cli_sync()
+    else:
+        main()   # homemade loop
