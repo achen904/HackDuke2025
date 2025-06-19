@@ -59,8 +59,8 @@ st.markdown("""
     }
 
     /* Textarea adjustments */
-    .stTextArea textarea {
-        width: calc(100% - 50px) !important;
+    .stTextInput > div > div > input {
+        width: calc(100% - 60px) !important;
         min-height: 45px !important;
         max-height: 150px !important;
         resize: none !important;
@@ -74,7 +74,14 @@ st.markdown("""
         border-radius: 50% !important;
         background-color: #007bff !important;
         color: white !important;
-        margin-top: 2px !important;
+        margin-left: 5px !important;
+        margin-top: 10px !important;
+        align-self: flex-end;
+    }
+
+    .input-row {
+        display: flex;
+        align-items: flex-end;
     }
 
     /* Mobile keyboard avoidance */
@@ -117,40 +124,28 @@ st.markdown(scroll_script, unsafe_allow_html=True)
 with st.container():
     st.markdown('<div class="input-container">', unsafe_allow_html=True)
     with st.form(key="chat_form", clear_on_submit=True):
+        st.markdown('<div class="input-row">', unsafe_allow_html=True)
         col1, col2 = st.columns([9, 1])
         
         with col1:
             user_input = st.text_input(
-            label="Enter message",
-            key="user_input",
-            placeholder="Type your message...",
-            max_chars=None  # No character limit
-        )
+                label="Enter message",
+                key="user_input",
+                placeholder="Type your message...",
+                max_chars=None  # No character limit
+            )
         
         with col2:
             submitted = st.form_submit_button("↑")
 
-       
-        
+        st.markdown('</div>', unsafe_allow_html=True)
+
         if submitted and user_input.strip():
             st.session_state.messages.append({"user": user_input})
             bot_response = get_response(user_input)
             st.session_state.messages.append({"bot": bot_response})
             st.rerun()
 
-        css='''
-        <style>
-            section.main>div {
-                padding-bottom: 1rem;
-            }
-            [data-testid="column"]>div>div>div>div>div {
-                overflow: auto;
-                height: 70vh;
-            }
-        </style>
-        '''
-
-        st.markdown(css, unsafe_allow_html = True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Enhanced JavaScript with better scroll handling
