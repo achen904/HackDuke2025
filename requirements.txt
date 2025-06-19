@@ -1,0 +1,9 @@
+python-dotenv
+pydantic-ai
+openai
+sentence-transformers
+faiss-cpu
+numpy
+requests
+beautifulsoup4
+playwright 

@@ -5,70 +5,133 @@ import sqlite3
 from sentence_transformers import SentenceTransformer
 import faiss;
 import numpy as np;
+import openai
 
 load_dotenv()
 
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+openai.api_key = OPENAI_API_KEY
+
+# If a custom OpenAI base URL is provided, configure the client to use it
+if OPENAI_API_BASE:
+    # Newer openai>=1.0 uses `base_url`; older (<1.0) uses `api_base`
+    if hasattr(openai, "base_url"):
+        openai.base_url = OPENAI_API_BASE
+    else:
+        openai.api_base = OPENAI_API_BASE
+    os.environ.setdefault("OPENAI_BASE_URL", OPENAI_API_BASE)
 
 agent = Agent(
-    'openai:gpt-4o-mini',  
+    'openai:GPT 4.1',  
     deps_type=str,  
-    system_prompt=(
-        "You are a diet and nutrition expert. Based off of what is available to eat, please create a meal plan that considers dietary restrictions"
-    ),
+    system_prompt="""You are a diet and nutrition expert working with Duke Net Nutrition data.
+
+Use ONLY foods contained in the database.
+
+When the user requests a meal suggestion or plan, first call the `rank_foods` tool (if the *_rank columns are missing)
+and then ALWAYS call `create_meal` with:
+  preferences: a concise description of the user's nutritional goals or keywords taken from their request,
+  num_meals: how many food items to return (default 3).
+
+After receiving the tool result, respond to the user using ONLY the food names in that result; do not invent or add items that are not present.
+
+If the user asks general nutrition questions not requiring a specific meal recommendation, answer normally.""",
 )
 
 @agent.tool
 def rank_foods(ctx: RunContext[str]) -> str:
     # Connect to the SQLite database
-    conn = sqlite3.connect('dummy1.db')
+    conn = sqlite3.connect('duke_nutrition.db')
     cursor = conn.cursor()
 
-    nutrients = ["calories", "total_fat", "saturated_fat", "trans_fat", "cholesterol", "sodium", "total_carbs", "dietary_fiber", "total_sugars", "added_sugars", "protein", "calcium", "iron", "potassium"]
+    nutrients = [
+        "calories",
+        "total_fat",
+        "saturated_fat",
+        "trans_fat",
+        "cholesterol",
+        "sodium",
+        "total_carbs",
+        "dietary_fiber",
+        "total_sugars",
+        "added_sugars",
+        "protein",
+        "calcium",
+        "iron",
+        "potassium",
+    ]
+
+    # Get existing columns to avoid duplicate ALTERs
+    existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(items)")}
 
     for nutrient in nutrients:
-        title = nutrient + "_rank"
-        addColumn =  f"ALTER TABLE items ADD COLUMN {title}"
-        cursor.execute(addColumn)
-        cursor.executescript(f"""
-        WITH ranked_product AS (
-                SELECT {nutrient}, 
-            RANK() OVER (ORDER BY {nutrient} DESC) AS price_rank,
-            COUNT(*) OVER () AS total_rows 
-            FROM items
+        title = f"{nutrient}_rank"
+
+        # Add the column only if it does not exist already
+        if title not in existing_cols:
+            cursor.execute(f"ALTER TABLE items ADD COLUMN {title}")
+
+        # (Re)calculate the ranking values – safe even if column already existed
+        cursor.executescript(
+            f"""
+            WITH ranked_product AS (
+                SELECT {nutrient},
+                       RANK() OVER (ORDER BY {nutrient} DESC) AS price_rank,
+                       COUNT(*) OVER ()                       AS total_rows
+                FROM items
             )
             UPDATE items
             SET {title} = CASE
-                WHEN ranked_product.price_rank <= ranked_product.total_rows / 3 THEN 'High'
-                WHEN ranked_product.price_rank <= 2 * ranked_product.total_rows / 3 THEN 'Medium'
-                ELSE 'Low'
-            END
+                    WHEN ranked_product.price_rank <= ranked_product.total_rows / 3 THEN 'High'
+                    WHEN ranked_product.price_rank <= 2 * ranked_product.total_rows / 3 THEN 'Medium'
+                    ELSE 'Low'
+                END
             FROM ranked_product
             WHERE items.{nutrient} = ranked_product.{nutrient};
-        """)
+            """
+        )
+
+    conn.commit()
+    conn.close()
 
 @agent.tool
-def create_meal(ctx: RunContext[str]) -> str:
-    conn = sqlite3.connect('dummy1.db')
+def create_meal(ctx: RunContext[str], preferences: str, num_meals: int = 3) -> str:
+    conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
 
-    # Fetch data from Net Nutrition
-    cursor.execute("SELECT name, calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, iron_rank, potassium_rank FROM items")
+    # Fetch both numeric values and rank labels
+    cursor.execute(
+        """
+        SELECT name,
+               calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, calcium, iron, potassium,
+               calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, iron_rank, potassium_rank
+        FROM items
+        """
+    )
     data = cursor.fetchall()
 
     # Close the connection
     conn.close()
 
-    # Organize the data for use
-    food_names = [entry[0] for entry in data]
-    nutritional_info = [entry[1:] for entry in data]  # Excluding food name
+    # Organize data into separate numeric & rank lists
+    food_names = []
+    numeric_info = []  # list of tuples (14 numeric)
+    rank_info = []     # list of tuples (14 rank strings)
 
+    for row in data:
+        food_names.append(row[0])
+        numeric_info.append(row[1:15])
+        rank_info.append(row[15:])
 
     # Load pre-trained sentence embedding model
-    model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
 
-    food_descriptions = [f"{cal[0]} Calories, {cal[1]} Total Fat, {cal[2]} Saturated Fat, {cal[3]} Trans-Fat, {cal[4]} Cholesterol, {cal[5]} Sodium, {cal[6]} Total Carbs, {cal[7]} Dietary Fiber, {cal[8]} Total Sugars, {cal[9]} Added Sugars, {cal[10]} Protein, {cal[11]} Calcium, {cal[12]} Iron, {cal[13]} Potassium" 
-                        for cal in nutritional_info]
+    # Build textual description from ranks for embedding similarity
+    food_descriptions = [
+        f"{r[0]} Calories, {r[1]} Total Fat, {r[2]} Saturated Fat, {r[3]} Trans-Fat, {r[4]} Cholesterol, {r[5]} Sodium, {r[6]} Total Carbs, {r[7]} Dietary Fiber, {r[8]} Total Sugars, {r[9]} Added Sugars, {r[10]} Protein, {r[11]} Calcium, {r[12]} Iron, {r[13]} Potassium"
+        for r in rank_info
+    ]
 
     # Generate embeddings
     embeddings = model.encode(food_descriptions)
@@ -82,10 +145,7 @@ def create_meal(ctx: RunContext[str]) -> str:
     index = faiss.IndexFlatIP(embeddings_np.shape[1])
     index.add(embeddings_np)
 
-    user_preferences = "High protein"
-    num_meals =3
-
-    user_pref_embedding = model.encode([user_preferences]).astype('float32')
+    user_pref_embedding = model.encode([preferences]).astype('float32')
 
     # Find top food items from FAISS
     D, I = index.search(user_pref_embedding, num_meals)
@@ -93,26 +153,26 @@ def create_meal(ctx: RunContext[str]) -> str:
     meal_plan = []
     for idx in I[0]:
         food_item = food_names[idx]
-        nutrition = nutritional_info[idx]
+        numbers = numeric_info[idx]
         meal_plan.append({
-            'food': food_item,
-            'calories': nutrition[0],
-            'total fat': nutrition[1],
-            'saturated fat': nutrition[2],
-            'trans-fat': nutrition[3],
-            'cholesterol': nutrition[4],
-            'sodium': nutrition[5],
-            'total carbs': nutrition[6],
-            'dietary fiber': nutrition[7],
-            'total sugars': nutrition[8],
-            'added sugars': nutrition[9],
-            'protein': nutrition[10],
-            'calcium': nutrition[11],
-            'iron': nutrition[12],
-            'potassium': nutrition[13],
+            "food": food_item,
+            "calories": numbers[0],
+            "total_fat": numbers[1],
+            "saturated_fat": numbers[2],
+            "trans_fat": numbers[3],
+            "cholesterol": numbers[4],
+            "sodium": numbers[5],
+            "total_carbs": numbers[6],
+            "dietary_fiber": numbers[7],
+            "total_sugars": numbers[8],
+            "added_sugars": numbers[9],
+            "protein": numbers[10],
+            "calcium": numbers[11],
+            "iron": numbers[12],
+            "potassium": numbers[13],
         })
 
-    return (" ").join(meal_plan)
+    return str(meal_plan)
 
 
 @agent.tool
@@ -131,6 +191,36 @@ def get_allergens(ctx: RunContext[str]) -> str:
     return ctx.deps
 
 def main():
-    meal_plan = agent.run_sync("What should I eat today", deps='No Meat')  
-    print(meal_plan.data)
-    
+    """Simple CLI loop to chat with the agent while preserving context."""
+    deps_input = input("Any dietary restrictions? (press Enter for none): ").strip()
+    deps = deps_input if deps_input else None
+
+    message_history = None  # will hold full conversation between turns
+
+    print("Type 'exit' to quit. Start chatting!\n")
+
+    try:
+        while True:
+            user_prompt = input("You: ").strip()
+            if user_prompt.lower() in {"exit", "quit", "stop"}:
+                print("Good-bye!")
+                break
+
+            # Run the agent with prior history so the conversation continues
+            result = agent.run_sync(
+                user_prompt,
+                deps=deps,
+                message_history=message_history,
+            )
+
+            print(f"Agent: {result.output}\n")
+
+            # Store updated history for the next turn
+            message_history = result.all_messages()
+    except KeyboardInterrupt:
+        print("\nInterrupted. Bye!")
+
+
+# Allow `python agent.py` to start the interactive chat
+if __name__ == "__main__":
+    main()
