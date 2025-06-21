@@ -45,6 +45,8 @@ LABEL_MAP = {
 DB_COLUMNS = [
     "name",
     "restaurant",
+    "meal_period",
+    "section",
     "calories",
     "total_fat",
     "saturated_fat",
@@ -79,12 +81,90 @@ def ensure_dependencies():
 def setup_database():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
+    
+    # Check current table structure
+    cur.execute("PRAGMA table_info(items)")
+    columns = [row[1] for row in cur.fetchall()]
+    
+    # Check if we need to reorder columns (section should be after meal_period)
+    if "section" in columns:
+        # Get the position of section column
+        section_position = None
+        meal_period_position = None
+        for i, (_, name, _, _, _, _) in enumerate(cur.execute("PRAGMA table_info(items)").fetchall()):
+            if name == "section":
+                section_position = i
+            elif name == "meal_period":
+                meal_period_position = i
+        
+        # If section is not right after meal_period, we need to reorder
+        if section_position is not None and meal_period_position is not None and section_position != meal_period_position + 1:
+            print("Reordering columns to put section after meal_period...")
+            
+            # Create new table with correct column order
+            cur.execute("""
+                CREATE TABLE items_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    restaurant TEXT,
+                    meal_period TEXT DEFAULT 'All Day',
+                    section TEXT DEFAULT 'General',
+                    calories INTEGER,
+                    total_fat INTEGER,
+                    saturated_fat INTEGER,
+                    trans_fat INTEGER,
+                    cholesterol INTEGER,
+                    sodium INTEGER,
+                    total_carbs INTEGER,
+                    dietary_fiber INTEGER,
+                    total_sugars INTEGER,
+                    added_sugars INTEGER,
+                    protein INTEGER,
+                    calcium INTEGER,
+                    iron INTEGER,
+                    potassium INTEGER,
+                    UNIQUE(name, restaurant, meal_period, section)
+                )
+            """)
+            
+            # Copy data from old table to new table
+            cur.execute("""
+                INSERT INTO items_new (name, restaurant, meal_period, section, calories, total_fat, 
+                                     saturated_fat, trans_fat, cholesterol, sodium, total_carbs, 
+                                     dietary_fiber, total_sugars, added_sugars, protein, calcium, 
+                                     iron, potassium)
+                SELECT name, restaurant, meal_period, section, calories, total_fat, 
+                       saturated_fat, trans_fat, cholesterol, sodium, total_carbs, 
+                       dietary_fiber, total_sugars, added_sugars, protein, calcium, 
+                       iron, potassium
+                FROM items
+            """)
+            
+            # Drop old table and rename new table
+            cur.execute("DROP TABLE items")
+            cur.execute("ALTER TABLE items_new RENAME TO items")
+            conn.commit()
+            print("Column reordering complete!")
+    
+    # Handle cases where columns don't exist yet
+    if "meal_period" not in columns:
+        print("Adding meal_period column to existing database...")
+        cur.execute("ALTER TABLE items ADD COLUMN meal_period TEXT DEFAULT 'All Day'")
+        conn.commit()
+    
+    if "section" not in columns:
+        print("Adding section column to existing database...")
+        cur.execute("ALTER TABLE items ADD COLUMN section TEXT DEFAULT 'General'")
+        conn.commit()
+    
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
             restaurant TEXT,
+            meal_period TEXT DEFAULT 'All Day',
+            section TEXT DEFAULT 'General',
             calories INTEGER,
             total_fat INTEGER,
             saturated_fat INTEGER,
@@ -99,7 +179,7 @@ def setup_database():
             calcium INTEGER,
             iron INTEGER,
             potassium INTEGER,
-            UNIQUE(name, restaurant)
+            UNIQUE(name, restaurant, meal_period, section)
         )
         """
     )
@@ -175,8 +255,8 @@ def _gather_items_from_page(page) -> List[Tuple[str, str]]:
     )
 
 
-def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
-    """Return a list of (item_name, restaurant_name, nutrition_dict) tuples scraped from the web UI."""
+def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str, Dict[str, int]]]:
+    """Return a list of (item_name, restaurant_name, meal_period, section, nutrition_dict) tuples scraped from the web UI."""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         # Use desktop viewport to avoid mobile-specific modals
@@ -202,11 +282,11 @@ def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
             pass
 
         # Enter the requested dining unit
-        unit_locator = page.locator(f"a[title='{UNIT_NAME}'][data-type='UN']").first
+        unit_locator = page.locator(f"a[title='{unit_name}'][data-type='UN']").first
 
         if unit_locator.count() == 0:
             raise RuntimeError(
-                f"Could not find unit '{UNIT_NAME}'. Check spelling on the NetNutrition landing page.")
+                f"Could not find unit '{unit_name}'. Check spelling on the NetNutrition landing page.")
 
         clicked = False
 
@@ -223,7 +303,7 @@ def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
             try:
                 page.evaluate(
                     f"""() => {{
-                        const el = document.querySelector(\"a[title='{UNIT_NAME}'][data-type='UN']\");
+                        const el = document.querySelector(\"a[title='{unit_name}'][data-type='UN']\");
                         if (el && window.NetNutrition?.UI?.handleNavBarSelection) {{
                             window.NetNutrition.UI.handleNavBarSelection(el);
                         }} else if (el) {{
@@ -236,30 +316,59 @@ def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
                 pass
 
         if not clicked:
-            raise RuntimeError(f"Failed to activate unit '{UNIT_NAME}'. UI may have changed.")
+            raise RuntimeError(f"Failed to activate unit '{unit_name}'. UI may have changed.")
         
         page.wait_for_load_state("networkidle")
         time.sleep(1)
 
-        # Collect all food items and their nutrition data by clicking each one
-        all_items_nutrition: List[Tuple[str, str, Dict[str, int]]] = []
+        # Collect all food items and their nutrition data
+        all_items_nutrition: List[Tuple[str, str, str, str, Dict[str, int]]] = []
         processed_names = set()
 
-        # Check if this restaurant has meal period links (like Breakfast, All Day, etc.)
-        # These appear as links in the main content area after selecting a restaurant
+        # Check if this restaurant has meal period links (like Breakfast, Lunch, Dinner, etc.)
+        print(f"Checking for meal periods in {unit_name}...")
         
-        # Try looking for meal period links with different strategies
-        orange_links = page.locator("a[style*='color'][href*='menuid'], a.text-warning[href*='menuid'], a[href*='menuid']").all()
-        if orange_links:
-            meal_period_links = orange_links
-        else:
-            # Try looking for links with specific text patterns (common in dropdown menus)
-            text_links = page.locator("a:has-text('Breakfast'), a:has-text('All Day'), a:has-text('Specialty'), a:has-text('Lunch'), a:has-text('Dinner')").all()
-            if text_links:
-                meal_period_links = text_links
-
+        # Look for meal period links with different strategies
+        meal_period_links = []
+        
+        # Strategy 1: Look for links with meal period text patterns (expanded to include combo meals)
+        text_links = page.locator("a:has-text('Breakfast'), a:has-text('All Day'), a:has-text('Specialty'), a:has-text('Lunch'), a:has-text('Dinner'), a:has-text('Combo'), a:has-text('Brunch'), a:has-text('Late Night')").all()
+        
+        # Strategy 2: Also look for any links with data-mealoid attribute (broader search)
+        mealoid_links = page.locator("a[data-mealoid]").all()
+        
+        # Combine both strategies
+        all_potential_links = text_links + mealoid_links
+        
+        # Filter to only include links that have proper meal period attributes
+        seen_meal_ids = set()
+        for link in all_potential_links:
+            try:
+                text = link.text_content().strip()
+                meal_id = link.get_attribute("data-mealoid")
+                
+                # Skip if we've already seen this meal ID or if it's invalid
+                if not meal_id or meal_id in seen_meal_ids or meal_id == "-1":
+                    continue
+                
+                # Check if it looks like a meal period (broader criteria)
+                meal_keywords = ['Breakfast', 'All Day', 'Specialty', 'Lunch', 'Dinner', 'Combo', 'Brunch', 'Late Night', 'Menu']
+                has_period_text = any(keyword.lower() in text.lower() for keyword in meal_keywords)
+                
+                # Also include if it has a valid mealoid and reasonable text length
+                if has_period_text or (meal_id and len(text) > 2 and len(text) < 50):
+                    meal_period_links.append(link)
+                    seen_meal_ids.add(meal_id)
+                    print(f"Found meal period: '{text}' (mealoid: {meal_id})")
+                    
+            except Exception:
+                continue
+        
+        print(f"Found {len(meal_period_links)} meal periods for {unit_name}")
+        
+        # Try the meal period approach if we found any, but with fallback logic
         if meal_period_links:
-            print(f"Found {len(meal_period_links)} meal periods for {UNIT_NAME}")
+            print(f"Using meal period approach for {unit_name}")
             
             # Process each meal period (Breakfast, All Day, Specialty Drinks, etc.)
             for meal_period in meal_period_links:
@@ -273,66 +382,92 @@ def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
                     
                     page.evaluate(f"""
                         () => {{
-                            const element = document.querySelector('[data-mealoid="{meal_id}"][data-unitoid="{unit_id}"]');
-                            if (element && window.NetNutrition?.UI?.handleNavBarSelection) {{
-                                window.NetNutrition.UI.handleNavBarSelection(element);
+                            console.log('Clicking meal period: {meal_period_name}');
+                            // Try multiple approaches to activate the meal period
+                            
+                            // Approach 1: Direct click
+                            const link = document.querySelector('a[data-mealoid="{meal_id}"]');
+                            if (link) {{
+                                link.click();
+                                return;
+                            }}
+                            
+                            // Approach 2: Use NetNutrition API if available
+                            if (window.NetNutrition && window.NetNutrition.UI) {{
+                                window.NetNutrition.UI.showMealPeriod('{meal_id}', '{unit_id}');
                             }}
                         }}
                     """)
                     
                     page.wait_for_load_state("networkidle")
+                    time.sleep(2)
+                    
+                    # Expand locations so all items are visible
+                    page.evaluate(
+                        """() => {
+                            document
+                                .querySelectorAll('#itemPanel table tbody tr td div')
+                                .forEach(btn => btn.click());
+                        }"""
+                    )
                     time.sleep(1)
                     
-                    # Now process any meal tabs within this period (if they exist)
-                    meal_tabs = page.locator("a.cbo_nn_menuLink").all()
-                    tabs_to_process = [None] + meal_tabs if meal_tabs else [None]
+                    # Process items in this meal period with section detection
+                    sections = page.locator("#itemPanel table tbody tr").all()
+                    current_section = "General"
                     
-                    for meal_tab in tabs_to_process:
-                        if meal_tab:
-                            try:
-                                meal_tab.click()
-                                page.wait_for_load_state("networkidle")
-                                time.sleep(0.8)
-                            except Exception as e:
-                                print(f"[!] Failed to process meal tab: {e}")
-                                continue
-
-                        # Expand locations so all items are visible
-                        page.evaluate(
-                            """() => {
-                                document
-                                    .querySelectorAll('#itemPanel table tbody tr td div')
-                                    .forEach(btn => btn.click());
-                            }"""
-                        )
-                        time.sleep(0.5)
-
-                        # Get all food items on this tab
-                        food_items = page.locator("a.cbo_nn_itemHover").all()
-                        
-                        for food_item in food_items:
-                            try:
-                                food_name = food_item.text_content().strip()
-                                
-                                # Skip if we've already processed this item
-                                if food_name in processed_names:
-                                    continue
-                                
-                                processed_names.add(food_name)
-                                
-                                # Extract nutrition data
-                                nutrition_data = extract_nutrition_from_item(page, food_item, food_name)
-                                all_items_nutrition.append((food_name, UNIT_NAME, nutrition_data))
-                                
-                            except Exception as e:
-                                print(f"[!] Failed to process food item: {e}")
-                                
+                    for section_row in sections:
+                        try:
+                            section_text = section_row.text_content().strip()
+                            food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
+                            
+                            # Check if this row is a section heading
+                            if not food_links_in_row and section_text and len(section_text) > 5:
+                                clean_section = section_text.replace("►", "").replace("▶", "").strip()
+                                if clean_section and clean_section != current_section:
+                                    current_section = clean_section
+                                    print(f"  Found section: {current_section}")
+                            
+                            # Process food items in this row
+                            for food_item in food_links_in_row:
+                                try:
+                                    food_name = food_item.text_content().strip()
+                                    
+                                    # Create unique key including meal period and section
+                                    unique_key = f"{food_name}_{unit_name}_{meal_period_name}_{current_section}"
+                                    
+                                    if unique_key in processed_names:
+                                        continue
+                                    
+                                    processed_names.add(unique_key)
+                                    
+                                    # Extract nutrition data
+                                    nutrition_data = extract_nutrition_from_item(page, food_item, food_name, unit_name, meal_period_name)
+                                    all_items_nutrition.append((food_name, unit_name, meal_period_name, current_section, nutrition_data))
+                                    
+                                except Exception as e:
+                                    print(f"  [!] Failed to process food item: {e}")
+                                    
+                        except Exception as e:
+                            print(f"  [!] Failed to process section row: {e}")
+                    
+                    meal_items = [item for item in all_items_nutrition if item[2] == meal_period_name]
+                    print(f"  Completed {meal_period_name}: found {len(meal_items)} items")
+                    
                 except Exception as e:
                     print(f"[!] Failed to process meal period {meal_period_name}: {e}")
-        else:
-            print(f"No meal periods found for {UNIT_NAME}, using standard meal tab approach")
             
-            # Original approach for restaurants without meal periods
+            # If we got items from meal periods, we're done
+            if all_items_nutrition:
+                print(f"Successfully extracted {len(all_items_nutrition)} items using meal period approach")
+            else:
+                print("Meal period approach found no items, falling back to standard approach")
+        
+        # Fallback: Use standard approach if no meal periods or meal period approach failed
+        if not meal_period_links or not all_items_nutrition:
+            print(f"Using standard approach for {unit_name}...")
+            
+            # Standard approach - works for restaurants without meal periods
             meal_tabs = page.locator("a.cbo_nn_menuLink").all()
             tabs_to_process = [None] + meal_tabs
 
@@ -356,31 +491,49 @@ def collect_items_and_nutrition() -> List[Tuple[str, str, Dict[str, int]]]:
                 )
                 time.sleep(0.5)
 
-                # Get all food items on this tab
-                food_items = page.locator("a.cbo_nn_itemHover").all()
+                # Get all food items and their section headings
+                sections = page.locator("#itemPanel table tbody tr").all()
+                current_section = "General"
                 
-                for food_item in food_items:
+                for section_row in sections:
                     try:
-                        food_name = food_item.text_content().strip()
+                        section_text = section_row.text_content().strip()
+                        food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
                         
-                        # Skip if we've already processed this item
-                        if food_name in processed_names:
-                            continue
+                        if not food_links_in_row and section_text and len(section_text) > 5:
+                            clean_section = section_text.replace("►", "").replace("▶", "").strip()
+                            if clean_section and clean_section != current_section:
+                                current_section = clean_section
+                                print(f"Found section: {current_section}")
                         
-                        processed_names.add(food_name)
-                        
-                        # Extract nutrition data
-                        nutrition_data = extract_nutrition_from_item(page, food_item, food_name)
-                        all_items_nutrition.append((food_name, UNIT_NAME, nutrition_data))
-                        
+                        # Process food items in this row
+                        for food_item in food_links_in_row:
+                            try:
+                                food_name = food_item.text_content().strip()
+                                
+                                # Create unique key including section
+                                unique_key = f"{food_name}_{unit_name}_All Day_{current_section}"
+                                
+                                if unique_key in processed_names:
+                                    continue
+                                
+                                processed_names.add(unique_key)
+                                
+                                # Extract nutrition data with "All Day" as meal period and current section
+                                nutrition_data = extract_nutrition_from_item(page, food_item, food_name, unit_name, "All Day")
+                                all_items_nutrition.append((food_name, unit_name, "All Day", current_section, nutrition_data))
+                                
+                            except Exception as e:
+                                print(f"[!] Failed to process food item: {e}")
+                                
                     except Exception as e:
-                        print(f"[!] Failed to process food item: {e}")
+                        print(f"[!] Failed to process section row: {e}")
 
         browser.close()
         return all_items_nutrition
 
 
-def extract_nutrition_from_item(page, food_item, food_name):
+def extract_nutrition_from_item(page, food_item, food_name, restaurant_name, meal_period):
     """Helper function to extract nutrition data from a food item."""
     # Dismiss any blocking modals before clicking
     try:
@@ -404,9 +557,9 @@ def extract_nutrition_from_item(page, food_item, food_name):
         nutrition_data = parse_nutrition_html(nutrition_html)
         
         if nutrition_data["calories"] > 0:
-            print(f"✓ Extracted {food_name} from {UNIT_NAME} - {nutrition_data['calories']} cal")
+            print(f"✓ Extracted {food_name} from {restaurant_name} ({meal_period}) - {nutrition_data['calories']} cal")
         else:
-            print(f"⚠ Extracted {food_name} from {UNIT_NAME} - no nutrition data")
+            print(f"⚠ Extracted {food_name} from {restaurant_name} ({meal_period}) - no nutrition data")
         
         # Close the nutrition popup
         close_button = page.locator("#btn_nn_nutrition_close")
@@ -428,7 +581,7 @@ def extract_nutrition_from_item(page, food_item, food_name):
         return {key: 0 for key in LABEL_MAP.values()}
 
 
-def store_nutrition_data(items_nutrition: List[Tuple[str, str, Dict[str, int]]]):
+def store_nutrition_data(items_nutrition: List[Tuple[str, str, str, str, Dict[str, int]]]):
     """Store nutrition data directly in the database."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -442,11 +595,13 @@ def store_nutrition_data(items_nutrition: List[Tuple[str, str, Dict[str, int]]])
     )
 
     success_count = 0
-    for name, restaurant, nutrition in items_nutrition:
+    for name, restaurant, meal_period, section, nutrition in items_nutrition:
         try:
             row = [
                 name,
                 restaurant,
+                meal_period,
+                section,
                 nutrition["calories"],
                 nutrition["total_fat"],
                 nutrition["saturated_fat"],
@@ -475,6 +630,17 @@ def store_nutrition_data(items_nutrition: List[Tuple[str, str, Dict[str, int]]])
     print(f"\nSummary: {success_count}/{len(items_nutrition)} items had nutrition data")
 
 
+def get_restaurant_name():
+    """Prompt user for restaurant name."""
+    while True:
+        restaurant_name = input("\nEnter restaurant name (or 'stop' to quit): ").strip()
+        if restaurant_name.lower() == 'stop':
+            return None
+        if restaurant_name:
+            return restaurant_name
+        print("Please enter a valid restaurant name.")
+
+
 # -------------------------------------------------------------
 # ENTRY POINT
 # -------------------------------------------------------------
@@ -483,12 +649,27 @@ def main():
     ensure_dependencies()
     setup_database()
 
-    print("Collecting items and nutrition data …")
-    items_nutrition = collect_items_and_nutrition()
-    print(f"Found {len(items_nutrition)} unique items. Storing in database …")
+    print("=== Duke Nutrition Scraper ===")
+    print("This tool will continuously prompt for restaurant names to scrape.")
+    print("Type 'stop' when you're done.\n")
 
-    store_nutrition_data(items_nutrition)
-    print("Done! Data available in", DB_PATH)
+    while True:
+        restaurant_name = get_restaurant_name()
+        if restaurant_name is None:
+            print("Stopping scraper. Goodbye!")
+            break
+            
+        try:
+            print(f"\nCollecting items and nutrition data from '{restaurant_name}'...")
+            items_nutrition = collect_items_and_nutrition(restaurant_name)
+            print(f"Found {len(items_nutrition)} unique items. Storing in database...")
+
+            store_nutrition_data(items_nutrition)
+            print(f"✅ Successfully scraped {restaurant_name}! Data available in {DB_PATH}")
+            
+        except Exception as e:
+            print(f"❌ Error scraping '{restaurant_name}': {e}")
+            print("Please check the restaurant name and try again.")
 
 
 if __name__ == "__main__":
