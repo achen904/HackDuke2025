@@ -186,12 +186,30 @@ def create_meal(
     return str(meal_plan)
 
 @agent.tool
-def delete_database(db_file):
-    os.remove(db_file)  
+def delete_database(ctx: RunContext[str], db_file: str = "duke_nutrition.db") -> str:
+    """Delete the specified SQLite database file.
+
+    Parameters
+    ----------
+    db_file : str
+        Path to the SQLite database file. Defaults to "duke_nutrition.db".
+    """
+    try:
+        os.remove(db_file)
+        return f"Deleted database file: {db_file}"
+    except FileNotFoundError:
+        return f"Database file not found: {db_file}"
+    except Exception as e:
+        return f"Error deleting database file: {e}"
 
 @agent.tool
-def create_database(db_file):
-    sqlite3.connect(db_file)
+def create_database(ctx: RunContext[str], db_file: str = "duke_nutrition.db") -> str:
+    """Create a new SQLite database file (or open if it exists)."""
+    try:
+        sqlite3.connect(db_file)
+        return f"Database created or opened successfully: {db_file}"
+    except Exception as e:
+        return f"Error creating database: {e}"
 
 @agent.tool  
 def get_allergens(ctx: RunContext[str]) -> str:
@@ -236,6 +254,30 @@ def filter_foods(
     conn.close()
 
     return [r[0] for r in rows]
+
+@agent.tool
+def clear_items(ctx: RunContext[str], db_file: str = "duke_nutrition.db") -> str:
+    """Delete all rows from the `items` table while keeping the database file intact.
+
+    This is useful when you want to preserve the schema but repopulate the table
+    with fresh data using the scraper.
+    """
+    try:
+        conn = sqlite3.connect(db_file)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM items")
+        deleted = cur.rowcount  # -1 means undetermined for SQLite
+        conn.commit()
+        conn.close()
+        msg = (
+            f"Cleared {deleted if deleted != -1 else 'all'} rows from 'items' table in {db_file}."
+        )
+        return msg
+    except sqlite3.OperationalError as e:
+        # Likely the table does not exist yet
+        return f"Error: {e}. Make sure the 'items' table exists before clearing."
+    except Exception as e:
+        return f"Unexpected error clearing items: {e}"
 
 def main():
     """Simple CLI loop to chat with the agent while preserving context."""
