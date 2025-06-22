@@ -285,17 +285,22 @@ def clear_items(ctx: RunContext[str], db_file: str = "duke_nutrition.db") -> str
     """Delete all rows from the `items` table while keeping the database file intact.
 
     This is useful when you want to preserve the schema but repopulate the table
-    with fresh data using the scraper.
+    with fresh data using the scraper. Also resets the autoincrement ID back to 1.
     """
     try:
         conn = sqlite3.connect(db_file)
         cur = conn.cursor()
         cur.execute("DELETE FROM items")
         deleted = cur.rowcount  # -1 means undetermined for SQLite
+        
+        # Reset the autoincrement sequence so next insert starts at id=1
+        cur.execute("DELETE FROM sqlite_sequence WHERE name='items'")
+        
         conn.commit()
         conn.close()
         msg = (
-            f"Cleared {deleted if deleted != -1 else 'all'} rows from 'items' table in {db_file}."
+            f"Cleared {deleted if deleted != -1 else 'all'} rows from 'items' table in {db_file}. "
+            f"ID sequence reset to start from 1."
         )
         return msg
     except sqlite3.OperationalError as e:
