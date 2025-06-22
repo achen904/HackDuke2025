@@ -421,12 +421,68 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                             section_text = section_row.text_content().strip()
                             food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
                             
-                            # Check if this row is a section heading
+                            # FIRST: Filter out UI text and comparison elements before any processing
+                            if section_text:
+                                text_lower = section_text.lower()
+                                skip_patterns = [
+                                    'check this item', 'compare', 'nutrition info', '12345',
+                                    'click here', 'view details', 'more info', 'see all',
+                                    'add to cart', 'order now', 'select item'
+                                ]
+                                
+                                if any(skip_pattern in text_lower for skip_pattern in skip_patterns):
+                                    # Skip this entire row - it contains UI text
+                                    continue
+                            
+                            # Enhanced section detection - check multiple patterns
+                            is_section_header = False
+                            potential_section = None
+                            
+                            # Pattern 1: Row with no food links (original logic)
                             if not food_links_in_row and section_text and len(section_text) > 5:
-                                clean_section = section_text.replace("►", "").replace("▶", "").strip()
-                                if clean_section and clean_section != current_section:
-                                    current_section = clean_section
-                                    print(f"  Found section: {current_section}")
+                                potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                                is_section_header = True
+                            
+                            # Pattern 2: Look for rows that contain section-like text patterns
+                            elif section_text and len(section_text) > 5:
+                                # Check if this looks like a section header based on content
+                                section_indicators = ['crepe', 'salad', 'sandwich', 'coffee', 'tea', 'smoothie', 'gelato', 
+                                                    'panini', 'burrito', 'pastry', 'quiche', 'latte', 'frappe']
+                                text_lower = section_text.lower()
+                                
+                                # If text contains section indicators and is relatively short (likely a header)
+                                if any(indicator in text_lower for indicator in section_indicators) and len(section_text) < 100:
+                                    # Additional validation: should look like a proper menu section
+                                    # Check for reasonable section name patterns
+                                    words = section_text.split()
+                                    
+                                    # Skip if it has too many words or looks like a description
+                                    if len(words) > 8:
+                                        continue
+                                    
+                                    # Skip if it contains obvious non-section words
+                                    non_section_words = ['item', 'info', 'compare', 'nutrition', 'click', 'view', 'details']
+                                    if any(word.lower() in text_lower for word in non_section_words):
+                                        continue
+                                    
+                                    # Check if this row has mostly non-food content (section header with some elements)
+                                    if len(food_links_in_row) <= 1:  # Allow up to 1 food link in section headers
+                                        potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                                        is_section_header = True
+                            
+                            # Pattern 3: Check for specific formatting that indicates section headers
+                            elif section_text:
+                                # Look for text that's formatted like a section header (caps, short, etc.)
+                                words = section_text.split()
+                                if (len(words) <= 6 and len(section_text) < 80 and 
+                                    not food_links_in_row and section_text.replace(" ", "").isalnum()):
+                                    potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                                    is_section_header = True
+                            
+                            # Update current section if we found a valid section header
+                            if is_section_header and potential_section and potential_section != current_section:
+                                current_section = potential_section
+                                print(f"  Found section: {current_section}")
                             
                             # Process food items in this row
                             for food_item in food_links_in_row:
@@ -500,18 +556,75 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                         section_text = section_row.text_content().strip()
                         food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
                         
+                        # FIRST: Filter out UI text and comparison elements before any processing
+                        if section_text:
+                            text_lower = section_text.lower()
+                            skip_patterns = [
+                                'check this item', 'compare', 'nutrition info', '12345',
+                                'click here', 'view details', 'more info', 'see all',
+                                'add to cart', 'order now', 'select item'
+                            ]
+                            
+                            if any(skip_pattern in text_lower for skip_pattern in skip_patterns):
+                                # Skip this entire row - it contains UI text
+                                continue
+                        
+                        # Enhanced section detection - check multiple patterns
+                        is_section_header = False
+                        potential_section = None
+                        
+                        # Pattern 1: Row with no food links (original logic)
                         if not food_links_in_row and section_text and len(section_text) > 5:
-                            clean_section = section_text.replace("►", "").replace("▶", "").strip()
-                            if clean_section and clean_section != current_section:
-                                current_section = clean_section
-                                print(f"Found section: {current_section}")
+                            potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                            is_section_header = True
+                        
+                        # Pattern 2: Look for rows that contain section-like text patterns
+                        elif section_text and len(section_text) > 5:
+                            # Check if this looks like a section header based on content
+                            section_indicators = ['crepe', 'salad', 'sandwich', 'coffee', 'tea', 'smoothie', 'gelato', 
+                                                'panini', 'burrito', 'pastry', 'quiche', 'latte', 'frappe']
+                            text_lower = section_text.lower()
+                            
+                            # If text contains section indicators and is relatively short (likely a header)
+                            if any(indicator in text_lower for indicator in section_indicators) and len(section_text) < 100:
+                                # Additional validation: should look like a proper menu section
+                                # Check for reasonable section name patterns
+                                words = section_text.split()
+                                
+                                # Skip if it has too many words or looks like a description
+                                if len(words) > 8:
+                                    continue
+                                
+                                # Skip if it contains obvious non-section words
+                                non_section_words = ['item', 'info', 'compare', 'nutrition', 'click', 'view', 'details']
+                                if any(word.lower() in text_lower for word in non_section_words):
+                                    continue
+                                
+                                # Check if this row has mostly non-food content (section header with some elements)
+                                if len(food_links_in_row) <= 1:  # Allow up to 1 food link in section headers
+                                    potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                                    is_section_header = True
+                        
+                        # Pattern 3: Check for specific formatting that indicates section headers
+                        elif section_text:
+                            # Look for text that's formatted like a section header (caps, short, etc.)
+                            words = section_text.split()
+                            if (len(words) <= 6 and len(section_text) < 80 and 
+                                not food_links_in_row and section_text.replace(" ", "").isalnum()):
+                                potential_section = section_text.replace("►", "").replace("▶", "").strip()
+                                is_section_header = True
+                        
+                        # Update current section if we found a valid section header
+                        if is_section_header and potential_section and potential_section != current_section:
+                            current_section = potential_section
+                            print(f"  Found section: {current_section}")
                         
                         # Process food items in this row
                         for food_item in food_links_in_row:
                             try:
                                 food_name = food_item.text_content().strip()
                                 
-                                # Create unique key including section
+                                # Create unique key including meal period and section
                                 unique_key = f"{food_name}_{unit_name}_All Day_{current_section}"
                                 
                                 if unique_key in processed_names:
@@ -524,10 +637,10 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                 all_items_nutrition.append((food_name, unit_name, "All Day", current_section, nutrition_data))
                                 
                             except Exception as e:
-                                print(f"[!] Failed to process food item: {e}")
+                                print(f"  [!] Failed to process food item: {e}")
                                 
                     except Exception as e:
-                        print(f"[!] Failed to process section row: {e}")
+                        print(f"  [!] Failed to process section row: {e}")
 
         browser.close()
         return all_items_nutrition
