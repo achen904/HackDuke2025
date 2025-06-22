@@ -106,12 +106,17 @@ def create_meal(
     conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
 
-    # Fetch both numeric values and rank labels
+    # Fetch restaurant name along with other data
     cursor.execute(
         """
-        SELECT name,
-               calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, total_carbs, dietary_fiber, total_sugars, added_sugars, protein, calcium, iron, potassium,
-               calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, iron_rank, potassium_rank
+        SELECT name, restaurant,  -- Added restaurant column here
+               calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, 
+               total_carbs, dietary_fiber, total_sugars, added_sugars, protein, 
+               calcium, iron, potassium,
+               calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, 
+               cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, 
+               total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, 
+               iron_rank, potassium_rank
         FROM items
         """
     )
@@ -120,22 +125,25 @@ def create_meal(
     # If a subset of food names is provided, filter rows early
     if allowed_foods:
         allowed_set = set(f.lower() for f in allowed_foods)
+        # Assuming name is at index 0
         data = [row for row in data if row[0].lower() in allowed_set]
 
-    # Close the connection
     conn.close()
 
-    # Organize data into separate numeric & rank lists
     food_names = []
-    numeric_info = []  # list of tuples (14 numeric)
-    rank_info = []     # list of tuples (14 rank strings)
+    food_restaurants = [] # New list to store restaurants
+    numeric_info = []     # list of tuples (14 numeric)
+    rank_info = []        # list of tuples (14 rank strings)
 
     for row in data:
         food_names.append(row[0])
-        numeric_info.append(row[1:15])
-        rank_info.append(row[15:])
+        food_restaurants.append(row[1]) # Store restaurant (it's at index 1 now)
+        numeric_info.append(row[2:16])  # Adjust indices: numeric data now starts at index 2
+        rank_info.append(row[16:])      # Adjust indices: rank data now starts at index 16
+
 
     # Load pre-trained sentence embedding model
+    # Ensure you have sentence-transformers installed: pip install sentence-transformers
     model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
 
     # Build textual description from ranks for embedding similarity
@@ -150,6 +158,9 @@ def create_meal(
     # Convert embeddings to numpy array
     embeddings_np = np.array(embeddings).astype('float32')
 
+    if embeddings_np.shape[0] == 0: # No food items match, possibly after filtering
+        return str([]) # Return empty list as string
+
     faiss.normalize_L2(embeddings_np)
 
     # Create a FAISS index (using Inner Product distance metric)
@@ -157,16 +168,30 @@ def create_meal(
     index.add(embeddings_np)
 
     user_pref_embedding = model.encode([preferences]).astype('float32')
+    faiss.normalize_L2(user_pref_embedding)
+
 
     # Find top food items from FAISS
-    D, I = index.search(user_pref_embedding, num_meals)
+    # Ensure num_meals is not greater than the number of items in the index
+    k = min(num_meals, embeddings_np.shape[0])
+    if k == 0:
+        return str([])
+        
+    D, I = index.search(user_pref_embedding, k)
 
     meal_plan = []
-    for idx in I[0]:
-        food_item = food_names[idx]
+    for i in range(k): # Iterate up to k (number of actual results found)
+        idx = I[0][i]
+        if idx < 0 or idx >= len(food_names): # faiss can return -1 if not enough neighbors
+            continue
+
+        food_item_name = food_names[idx]
+        food_item_restaurant = food_restaurants[idx] # Get restaurant
         numbers = numeric_info[idx]
+        
         meal_plan.append({
-            "food": food_item,
+            "food": food_item_name,
+            "restaurant": food_item_restaurant, # Include restaurant
             "calories": numbers[0],
             "total_fat": numbers[1],
             "saturated_fat": numbers[2],
@@ -183,7 +208,7 @@ def create_meal(
             "potassium": numbers[13],
         })
 
-    return str(meal_plan)
+    return str(meal_plan) 
 
 @agent.tool
 def delete_database(ctx: RunContext[str], db_file: str = "duke_nutrition.db") -> str:

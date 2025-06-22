@@ -1,0 +1,6 @@
+{
+  "description": "",
+  "prompt": "build an application for Duke students that asks for their food and health/body goals. We have a running model trained on existing nutritional facts on Duke's campus for each restaurant. The app should take into account the students goals (general or specific) and run it through the model to provide the most optimal meal plan for each day. It must take into account whether or not the student eats each specifc meal. The scraper extracts the data and feeds it to the model. the frontend should connect to the backend. the user interface should be flawless and smooth. Here's the page source for the nutrition website for extra information:",
+  "requestFramePermissions": [],
+  "name": "BlueDevilEats"
+}
