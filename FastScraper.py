@@ -243,7 +243,8 @@ def parse_nutrition_html(html: str) -> Dict[str, int]:
 
 def _gather_items_from_page(page) -> List[Tuple[str, str]]:
     """Extract (itemID, name) pairs from the current DOM."""
-    return page.evaluate(
+    # First try the original selector
+    items = page.evaluate(
         r"""
         () => Array.from(document.querySelectorAll('a.cbo_nn_itemHover')).map(el => {
             const rawAttr = el.dataset.itemid || el.getAttribute('data-itemid') || '';
@@ -253,6 +254,58 @@ def _gather_items_from_page(page) -> List[Tuple[str, str]]:
         });
         """
     )
+    
+    # If that didn't work, try alternative selectors and log what we find
+    if not items:
+        # Debug: Log what elements are actually present
+        debug_info = page.evaluate(
+            r"""
+            () => {
+                const results = {
+                    itemHover: document.querySelectorAll('a.cbo_nn_itemHover').length,
+                    allLinks: document.querySelectorAll('a').length,
+                    itemPanel: document.querySelector('#itemPanel') ? 'found' : 'missing',
+                    tableRows: document.querySelectorAll('#itemPanel table tbody tr').length,
+                    linksInPanel: document.querySelectorAll('#itemPanel a').length,
+                    sample_links: Array.from(document.querySelectorAll('#itemPanel a')).slice(0, 5).map(el => ({
+                        text: el.textContent.trim(),
+                        class: el.className,
+                        onclick: el.getAttribute('onclick') || 'none',
+                        href: el.href || 'none'
+                    }))
+                };
+                return results;
+            }
+            """
+        )
+        print(f"[DEBUG] Page analysis: {debug_info}")
+        
+        # Try alternative selectors
+        alternatives = [
+            'a[onclick*="showLabel"]',
+            'a[data-itemid]',
+            '#itemPanel a[onclick]',
+            '#itemPanel table a',
+            'a.menuItem',
+            'a.food-item'
+        ]
+        
+        for selector in alternatives:
+            items = page.evaluate(
+                f"""
+                () => Array.from(document.querySelectorAll('{selector}')).map(el => {{
+                    const rawAttr = el.dataset.itemid || el.getAttribute('data-itemid') || '';
+                    const onclick = el.getAttribute('onclick') || '';
+                    const idMatch = rawAttr || (onclick.match(/\\d+/) || [])[0];
+                    return [idMatch, el.textContent.trim()];
+                }});
+                """
+            )
+            if items:
+                print(f"[DEBUG] Found {len(items)} items with selector: {selector}")
+                break
+    
+    return items
 
 
 def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str, Dict[str, int]]]:
@@ -416,22 +469,66 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                     sections = page.locator("#itemPanel table tbody tr").all()
                     current_section = "General"
                     
+                    # DEBUG: Let's see the actual HTML structure
+                    print(f"  [DEBUG] Found {len(sections)} rows in itemPanel")
+                    if len(sections) > 0:
+                        # Dump the first few rows to see the structure
+                        for i, section_row in enumerate(sections[:5]):
+                            try:
+                                row_html = section_row.inner_html()
+                                row_text = section_row.text_content().strip()
+                                print(f"  [DEBUG] Row {i}: text='{row_text[:100]}...'")
+                                print(f"  [DEBUG] Row {i}: HTML={row_html[:200]}...")
+                                
+                                # Check what links are actually in this row
+                                all_links = section_row.locator("a").all()
+                                print(f"  [DEBUG] Row {i}: found {len(all_links)} total links")
+                                for j, link in enumerate(all_links):
+                                    link_text = link.text_content().strip()
+                                    link_class = link.get_attribute("class") or ""
+                                    link_onclick = link.get_attribute("onclick") or ""
+                                    print(f"    Link {j}: text='{link_text}' class='{link_class}' onclick='{link_onclick[:50]}...'")
+                                    
+                            except Exception as e:
+                                print(f"  [DEBUG] Error examining row {i}: {e}")
+                    
+                    # Also check if there are items outside the table structure
+                    print(f"  [DEBUG] Checking for items outside table structure...")
+                    page_debug = page.evaluate(
+                        """
+                        () => {
+                            return {
+                                total_links: document.querySelectorAll('a').length,
+                                itemPanel_links: document.querySelectorAll('#itemPanel a').length,
+                                itemHover_links: document.querySelectorAll('a.cbo_nn_itemHover').length,
+                                onclick_links: document.querySelectorAll('a[onclick]').length,
+                                showLabel_links: document.querySelectorAll('a[onclick*="showLabel"]').length,
+                                sample_onclick_links: Array.from(document.querySelectorAll('#itemPanel a[onclick]')).slice(0,3).map(el => ({
+                                    text: el.textContent.trim(),
+                                    onclick: el.getAttribute('onclick')
+                                }))
+                            };
+                        }
+                        """
+                    )
+                    print(f"  [DEBUG] Page analysis: {page_debug}")
+                    
                     for section_row in sections:
                         try:
                             section_text = section_row.text_content().strip()
                             food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
                             
-                            # FIRST: Filter out UI text and comparison elements before any processing
-                            if section_text:
+                            # FIRST: Filter out UI text and comparison elements, but ONLY if there are no food links
+                            # Don't skip rows that contain food items even if they have UI text
+                            if section_text and not food_links_in_row:
                                 text_lower = section_text.lower()
                                 skip_patterns = [
-                                    'check this item', 'compare', 'nutrition info', '12345',
                                     'click here', 'view details', 'more info', 'see all',
                                     'add to cart', 'order now', 'select item'
                                 ]
                                 
+                                # Only skip if it's purely UI text with no food items
                                 if any(skip_pattern in text_lower for skip_pattern in skip_patterns):
-                                    # Skip this entire row - it contains UI text
                                     continue
                             
                             # Enhanced section detection - check multiple patterns
@@ -484,15 +581,60 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                 current_section = potential_section
                                 print(f"  Found section: {current_section}")
                             
+                            # Debug: Log what we found in this row
+                            if section_text and len(food_links_in_row) > 0:
+                                print(f"  Row contains: '{section_text[:50]}...' with {len(food_links_in_row)} food links")
+                            elif section_text and len(section_text) > 5:
+                                # This might be a section header
+                                print(f"  Potential section header: '{section_text[:50]}...'")
+                            
+                            # Debug: If no food links found, try alternative approaches
+                            if not food_links_in_row and section_text:
+                                # Try different selectors for food items in this row
+                                alt_selectors = [
+                                    "a[onclick*='showLabel']",
+                                    "a[data-itemid]", 
+                                    "a[onclick]",
+                                    "a"
+                                ]
+                                
+                                for selector in alt_selectors:
+                                    alt_links = section_row.locator(selector).all()
+                                    if alt_links:
+                                        print(f"  Found {len(alt_links)} links with selector '{selector}' in row: {section_text[:30]}...")
+                                        # Check if these look like food items
+                                        for link in alt_links:
+                                            link_text = link.text_content().strip()
+                                            onclick = link.get_attribute("onclick") or ""
+                                            if link_text and len(link_text) > 2 and len(link_text) < 100:
+                                                if "showLabel" in onclick or "itemid" in onclick.lower():
+                                                    print(f"    Potential food item: '{link_text}' (onclick: {onclick[:30]}...)")
+                                                    # Use this as a food item
+                                                    food_links_in_row.append(link)
+                                        break
+                            
                             # Process food items in this row
                             for food_item in food_links_in_row:
                                 try:
                                     food_name = food_item.text_content().strip()
+                                    onclick = food_item.get_attribute("onclick") or ""
+                                    
+                                    # Validate this is actually a food item
+                                    if not food_name or len(food_name) < 2:
+                                        continue
+                                        
+                                    # Skip obvious UI elements - be more specific to avoid false positives
+                                    skip_text = ['click here', 'view details', 'more info', 'see all', 'add to cart']
+                                    if any(skip in food_name.lower() for skip in skip_text):
+                                        continue
+                                    
+                                    print(f"  Processing food item: '{food_name}' in section '{current_section}'")
                                     
                                     # Create unique key including meal period and section
                                     unique_key = f"{food_name}_{unit_name}_{meal_period_name}_{current_section}"
                                     
                                     if unique_key in processed_names:
+                                        print(f"  Skipping duplicate: {food_name}")
                                         continue
                                     
                                     processed_names.add(unique_key)
@@ -556,17 +698,17 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                         section_text = section_row.text_content().strip()
                         food_links_in_row = section_row.locator("a.cbo_nn_itemHover").all()
                         
-                        # FIRST: Filter out UI text and comparison elements before any processing
-                        if section_text:
+                        # FIRST: Filter out UI text and comparison elements, but ONLY if there are no food links
+                        # Don't skip rows that contain food items even if they have UI text
+                        if section_text and not food_links_in_row:
                             text_lower = section_text.lower()
                             skip_patterns = [
-                                'check this item', 'compare', 'nutrition info', '12345',
                                 'click here', 'view details', 'more info', 'see all',
                                 'add to cart', 'order now', 'select item'
                             ]
                             
+                            # Only skip if it's purely UI text with no food items
                             if any(skip_pattern in text_lower for skip_pattern in skip_patterns):
-                                # Skip this entire row - it contains UI text
                                 continue
                         
                         # Enhanced section detection - check multiple patterns
@@ -619,15 +761,60 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                             current_section = potential_section
                             print(f"  Found section: {current_section}")
                         
+                        # Debug: Log what we found in this row
+                        if section_text and len(food_links_in_row) > 0:
+                            print(f"  Row contains: '{section_text[:50]}...' with {len(food_links_in_row)} food links")
+                        elif section_text and len(section_text) > 5:
+                            # This might be a section header
+                            print(f"  Potential section header: '{section_text[:50]}...'")
+                        
+                        # Debug: If no food links found, try alternative approaches
+                        if not food_links_in_row and section_text:
+                            # Try different selectors for food items in this row
+                            alt_selectors = [
+                                "a[onclick*='showLabel']",
+                                "a[data-itemid]", 
+                                "a[onclick]",
+                                "a"
+                            ]
+                            
+                            for selector in alt_selectors:
+                                alt_links = section_row.locator(selector).all()
+                                if alt_links:
+                                    print(f"  Found {len(alt_links)} links with selector '{selector}' in row: {section_text[:30]}...")
+                                    # Check if these look like food items
+                                    for link in alt_links:
+                                        link_text = link.text_content().strip()
+                                        onclick = link.get_attribute("onclick") or ""
+                                        if link_text and len(link_text) > 2 and len(link_text) < 100:
+                                            if "showLabel" in onclick or "itemid" in onclick.lower():
+                                                print(f"    Potential food item: '{link_text}' (onclick: {onclick[:30]}...)")
+                                                # Use this as a food item
+                                                food_links_in_row.append(link)
+                                    break
+                        
                         # Process food items in this row
                         for food_item in food_links_in_row:
                             try:
                                 food_name = food_item.text_content().strip()
+                                onclick = food_item.get_attribute("onclick") or ""
+                                
+                                # Validate this is actually a food item
+                                if not food_name or len(food_name) < 2:
+                                    continue
+                                    
+                                # Skip obvious UI elements - be more specific to avoid false positives
+                                skip_text = ['click here', 'view details', 'more info', 'see all', 'add to cart']
+                                if any(skip in food_name.lower() for skip in skip_text):
+                                    continue
+                                
+                                print(f"  Processing food item: '{food_name}' in section '{current_section}'")
                                 
                                 # Create unique key including meal period and section
                                 unique_key = f"{food_name}_{unit_name}_All Day_{current_section}"
                                 
                                 if unique_key in processed_names:
+                                    print(f"  Skipping duplicate: {food_name}")
                                     continue
                                 
                                 processed_names.add(unique_key)
