@@ -241,6 +241,64 @@ def parse_nutrition_html(html: str) -> Dict[str, int]:
 # SCRAPING LOGIC
 # -------------------------------------------------------------
 
+def should_update_section(current_section: str, new_section: str) -> bool:
+    """Determine if we should update to a new section based on priority."""
+    # Define section priority (higher number = higher priority = more specific/primary)
+    section_priorities = {
+        # Primary categories (specific food types)
+        'entrees': 100,
+        'mains': 100,
+        'main course': 100,
+        'burgers': 90,
+        'pizza': 90,
+        'sandwiches': 85,
+        'salads': 85,
+        'desserts': 80,
+        'sides': 75,
+        
+        # Secondary categories (modifiers/additions)
+        'toppings': 50,
+        'add ons': 40,
+        'add-ons': 40,
+        'extras': 40,
+        'condiments': 35,
+        'dressings': 35,
+        'sauces': 35,
+        
+        # Generic/fallback categories
+        'general': 10,
+        'other': 10,
+        'build your own': 20,
+    }
+    
+    def get_section_priority(section: str) -> int:
+        """Get priority score for a section, checking for partial matches."""
+        section_lower = section.lower()
+        
+        # Exact match first
+        if section_lower in section_priorities:
+            return section_priorities[section_lower]
+        
+        # Partial matches
+        for key, priority in section_priorities.items():
+            if key in section_lower:
+                return priority
+        
+        # Default priority for unknown sections
+        # Longer, more descriptive names get higher priority
+        if len(section) > 20:
+            return 60  # Descriptive sections like "Build Your Own Burger (Choose Your Ingredients)"
+        elif len(section) > 10:
+            return 30  # Medium descriptive
+        else:
+            return 15  # Short/generic
+    
+    current_priority = get_section_priority(current_section)
+    new_priority = get_section_priority(new_section)
+    
+    return new_priority > current_priority
+
+
 def _gather_items_from_page(page) -> List[Tuple[str, str]]:
     """Extract (itemID, name) pairs from the current DOM."""
     # First try the original selector
@@ -376,7 +434,7 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
 
         # Collect all food items and their nutrition data
         all_items_nutrition: List[Tuple[str, str, str, str, Dict[str, int]]] = []
-        processed_names = set()
+        processed_names = {}  # Changed to dict to store section info for priority comparison
 
         # Check if this restaurant has meal period links (like Breakfast, Lunch, Dinner, etc.)
         print(f"Checking for meal periods in {unit_name}...")
@@ -630,14 +688,46 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                     
                                     print(f"  Processing food item: '{food_name}' in section '{current_section}'")
                                     
-                                    # Create unique key including meal period and section
-                                    unique_key = f"{food_name}_{unit_name}_{meal_period_name}_{current_section}"
+                                    # Extract item ID from onclick attribute for true uniqueness
+                                    onclick = food_item.get_attribute("onclick") or ""
+                                    item_id = None
+                                    if "getItemNutritionLabel" in onclick:
+                                        import re
+                                        match = re.search(r'getItemNutritionLabelOnClick\(event,(\d+)\)', onclick)
+                                        if match:
+                                            item_id = match.group(1)
                                     
+                                    # Create unique key using item ID if available (ignore meal period for true uniqueness)
+                                    if item_id:
+                                        unique_key = f"{item_id}_{unit_name}"
+                                    else:
+                                        unique_key = f"{food_name}_{unit_name}_{meal_period_name}"
+                                    
+                                    # Check if we've seen this item before
                                     if unique_key in processed_names:
-                                        print(f"  Skipping duplicate: {food_name}")
+                                        # Check if current section has higher priority than stored section
+                                        stored_item = processed_names[unique_key]
+                                        if should_update_section(stored_item['section'], current_section):
+                                            print(f"  Updating section for {food_name}: '{stored_item['section']}' → '{current_section}'")
+                                            # Update the stored item with better section
+                                            for i, item in enumerate(all_items_nutrition):
+                                                if item[0] == food_name and item[1] == unit_name:
+                                                    all_items_nutrition[i] = (food_name, unit_name, meal_period_name, current_section, item[4])
+                                                    break
+                                            processed_names[unique_key]['section'] = current_section
+                                        else:
+                                            if item_id:
+                                                print(f"  Skipping duplicate: {food_name} (same item ID: {item_id}, keeping section: {stored_item['section']})")
+                                            else:
+                                                print(f"  Skipping duplicate: {food_name} (same name, keeping section: {stored_item['section']})")
                                         continue
                                     
-                                    processed_names.add(unique_key)
+                                    # Store item info for future section comparisons
+                                    processed_names[unique_key] = {
+                                        'section': current_section,
+                                        'meal_period': meal_period_name,
+                                        'name': food_name
+                                    }
                                     
                                     # Extract nutrition data
                                     nutrition_data = extract_nutrition_from_item(page, food_item, food_name, unit_name, meal_period_name)
@@ -655,8 +745,19 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                 except Exception as e:
                     print(f"[!] Failed to process meal period {meal_period_name}: {e}")
             
-            # If we got items from meal periods, we're done
+            # For restaurants with many meal periods but same items, default to "All Day"
             if all_items_nutrition:
+                # Check if this restaurant should be treated as "All Day" instead of specific meal periods
+                if len(meal_period_links) > 6:  # If many meal periods detected (likely same items everywhere)
+                    print(f"Restaurant has {len(meal_period_links)} meal periods - likely an 'All Day' restaurant")
+                    print("Converting all meal periods to 'All Day' for consistency")
+                    
+                    # Convert all items to "All Day" meal period
+                    all_items_nutrition = [
+                        (item_name, restaurant, "All Day", section, nutrition)
+                        for item_name, restaurant, meal_period, section, nutrition in all_items_nutrition
+                    ]
+                
                 print(f"Successfully extracted {len(all_items_nutrition)} items using meal period approach")
             else:
                 print("Meal period approach found no items, falling back to standard approach")
@@ -810,14 +911,46 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                 
                                 print(f"  Processing food item: '{food_name}' in section '{current_section}'")
                                 
-                                # Create unique key including meal period and section
-                                unique_key = f"{food_name}_{unit_name}_All Day_{current_section}"
+                                # Extract item ID from onclick attribute for true uniqueness
+                                onclick = food_item.get_attribute("onclick") or ""
+                                item_id = None
+                                if "getItemNutritionLabel" in onclick:
+                                    import re
+                                    match = re.search(r'getItemNutritionLabelOnClick\(event,(\d+)\)', onclick)
+                                    if match:
+                                        item_id = match.group(1)
                                 
+                                # Create unique key using item ID if available (ignore meal period for true uniqueness)
+                                if item_id:
+                                    unique_key = f"{item_id}_{unit_name}"
+                                else:
+                                    unique_key = f"{food_name}_{unit_name}_All Day"
+                                
+                                # Check if we've seen this item before
                                 if unique_key in processed_names:
-                                    print(f"  Skipping duplicate: {food_name}")
+                                    # Check if current section has higher priority than stored section
+                                    stored_item = processed_names[unique_key]
+                                    if should_update_section(stored_item['section'], current_section):
+                                        print(f"  Updating section for {food_name}: '{stored_item['section']}' → '{current_section}'")
+                                        # Update the stored item with better section
+                                        for i, item in enumerate(all_items_nutrition):
+                                            if item[0] == food_name and item[1] == unit_name:
+                                                all_items_nutrition[i] = (food_name, unit_name, "All Day", current_section, item[4])
+                                                break
+                                        processed_names[unique_key]['section'] = current_section
+                                    else:
+                                        if item_id:
+                                            print(f"  Skipping duplicate: {food_name} (same item ID: {item_id}, keeping section: {stored_item['section']})")
+                                        else:
+                                            print(f"  Skipping duplicate: {food_name} (same name, keeping section: {stored_item['section']})")
                                     continue
                                 
-                                processed_names.add(unique_key)
+                                # Store item info for future section comparisons
+                                processed_names[unique_key] = {
+                                    'section': current_section,
+                                    'meal_period': "All Day",
+                                    'name': food_name
+                                }
                                 
                                 # Extract nutrition data with "All Day" as meal period and current section
                                 nutrition_data = extract_nutrition_from_item(page, food_item, food_name, unit_name, "All Day")
@@ -844,41 +977,127 @@ def extract_nutrition_from_item(page, food_item, food_name, restaurant_name, mea
     except Exception:
         pass
     
-    # Click the food item to open nutrition popup
-    food_item.scroll_into_view_if_needed()
-    food_item.click(force=True)
+    # Try multiple approaches to click the food item
+    clicked = False
+    nutrition_data = {key: 0 for key in LABEL_MAP.values()}
     
-    # Wait for nutrition popup to appear
+    # Approach 1: Try to use JavaScript to click directly using onclick attribute
     try:
-        page.wait_for_selector("#nutritionLabel", timeout=5000)
-        
-        # Extract nutrition data from the popup
-        nutrition_html = page.locator("#nutritionLabel").inner_html()
-        nutrition_data = parse_nutrition_html(nutrition_html)
-        
-        if nutrition_data["calories"] > 0:
-            print(f"✓ Extracted {food_name} from {restaurant_name} ({meal_period}) - {nutrition_data['calories']} cal")
-        else:
-            print(f"⚠ Extracted {food_name} from {restaurant_name} ({meal_period}) - no nutrition data")
-        
-        # Close the nutrition popup
-        close_button = page.locator("#btn_nn_nutrition_close")
-        if close_button.is_visible():
-            close_button.click()
-            page.wait_for_load_state("networkidle")
-        
-        return nutrition_data
-        
+        onclick = food_item.get_attribute("onclick")
+        if onclick and "getItemNutritionLabel" in onclick:
+            # Extract the item ID from onclick and call the function directly
+            import re
+            match = re.search(r'getItemNutritionLabelOnClick\(event,(\d+)\)', onclick)
+            if match:
+                item_id = match.group(1)
+                # Create a mock event object with target property
+                page.evaluate(f"""
+                    const mockEvent = {{ target: document.getElementById('showNutrition_{item_id}') }};
+                    NetNutrition.UI.getItemNutritionLabelOnClick(mockEvent, {item_id});
+                """)
+                clicked = True
+                print(f"  → Used direct JavaScript call for {food_name}")
     except Exception as e:
-        print(f"[!] Failed to extract nutrition for {food_name}: {e}")
-        # Try to close any open popup
+        print(f"  → JavaScript approach failed: {e}")
+    
+    # Approach 2: Try standard click with reduced timeout
+    if not clicked:
         try:
-            page.locator("#btn_nn_nutrition_close").click(timeout=1000)
-        except:
-            pass
-        
-        # Return empty nutrition data
-        return {key: 0 for key in LABEL_MAP.values()}
+            # Try to scroll with reduced timeout first
+            food_item.scroll_into_view_if_needed(timeout=3000)
+            food_item.click(force=True, timeout=3000)
+            clicked = True
+            print(f"  → Used standard click for {food_name}")
+        except Exception as e:
+            print(f"  → Standard click failed: {e}")
+    
+    # Approach 3: Try clicking without scrolling
+    if not clicked:
+        try:
+            food_item.click(force=True, timeout=2000)
+            clicked = True
+            print(f"  → Used force click without scroll for {food_name}")
+        except Exception as e:
+            print(f"  → Force click failed: {e}")
+    
+    # Approach 4: Try the simpler nutrition label function without event
+    if not clicked:
+        try:
+            onclick = food_item.get_attribute("onclick")
+            if onclick and "getItemNutritionLabel" in onclick:
+                import re
+                match = re.search(r'getItemNutritionLabelOnClick\(event,(\d+)\)', onclick)
+                if match:
+                    item_id = match.group(1)
+                    # Try the simpler function that might not need an event
+                    page.evaluate(f"NetNutrition.UI.getItemNutritionLabel({item_id})")
+                    clicked = True
+                    print(f"  → Used simple nutrition label call for {food_name}")
+        except Exception as e:
+            print(f"  → Simple nutrition call failed: {e}")
+    
+    # Approach 5: Try using JavaScript click by element ID
+    if not clicked:
+        try:
+            # Get the element ID and click via JavaScript
+            element_id = food_item.get_attribute("id")
+            if element_id:
+                page.evaluate(f"document.getElementById('{element_id}').click()")
+                clicked = True
+                print(f"  → Used JavaScript ID click for {food_name}")
+            else:
+                # Fallback: use querySelector with onclick attribute
+                onclick = food_item.get_attribute("onclick") or ""
+                if "getItemNutritionLabel" in onclick:
+                    import re
+                    match = re.search(r'getItemNutritionLabelOnClick\(event,(\d+)\)', onclick)
+                    if match:
+                        item_id = match.group(1)
+                        page.evaluate(f"document.querySelector('[onclick*=\"{item_id}\"]').click()")
+                        clicked = True
+                        print(f"  → Used JavaScript selector click for {food_name}")
+        except Exception as e:
+            print(f"  → JavaScript element click failed: {e}")
+    
+    # If we successfully clicked, try to extract nutrition data
+    if clicked:
+        try:
+            # Wait for nutrition popup with reduced timeout
+            page.wait_for_selector("#nutritionLabel", timeout=3000)
+            
+            # Extract nutrition data from the popup
+            nutrition_html = page.locator("#nutritionLabel").inner_html()
+            nutrition_data = parse_nutrition_html(nutrition_html)
+            
+            if nutrition_data["calories"] > 0:
+                print(f"✓ Extracted {food_name} from {restaurant_name} ({meal_period}) - {nutrition_data['calories']} cal")
+            else:
+                print(f"⚠ Extracted {food_name} from {restaurant_name} ({meal_period}) - no nutrition data")
+            
+            # Close the nutrition popup
+            try:
+                close_button = page.locator("#btn_nn_nutrition_close")
+                if close_button.is_visible(timeout=1000):
+                    close_button.click(timeout=2000)
+                    page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                # If closing fails, try pressing Escape
+                page.keyboard.press("Escape")
+            
+        except Exception as e:
+            print(f"[!] Failed to extract nutrition data for {food_name}: {e}")
+            # Try to close any open popup
+            try:
+                page.locator("#btn_nn_nutrition_close").click(timeout=1000)
+            except:
+                try:
+                    page.keyboard.press("Escape")
+                except:
+                    pass
+    else:
+        print(f"⚠ Could not click {food_name} - skipping nutrition extraction")
+    
+    return nutrition_data
 
 
 def store_nutrition_data(items_nutrition: List[Tuple[str, str, str, str, Dict[str, int]]]):
