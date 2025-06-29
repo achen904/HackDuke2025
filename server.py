@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def parse_agent_response(agent_response: str) -> Dict[str, Any]:
     """
     Parse the agent's string response and convert it to structured meal plan data.
-    The agent returns a format with meal headers, restaurant headers, and food items.
+    The agent returns a format with meal headers using em dash, restaurant info, and food items.
     """
     try:
         # Initialize the meal plan structure
@@ -33,7 +33,7 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
         }
         
         # Split the response into lines and parse
-        lines = [line.rstrip() for line in agent_response.strip().split('\n')]  # Keep original spacing
+        lines = [line.rstrip() for line in agent_response.strip().split('\n')]
         current_meal = None
         current_restaurant = None
         current_food_item = None
@@ -49,77 +49,98 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
                 
             line_lower = line.lower()
             
-            # Check for meal type headers (with or without colon)
-            if any(meal in line_lower.rstrip(':') for meal in ['breakfast', 'lunch', 'dinner', 'snack']):
+            # Skip summary sections entirely
+            if any(skip_phrase in line_lower for skip_phrase in [
+                'daily nutrition summary', 'nutrition summary', 'total daily', 
+                'daily totals', 'summary:', 'if you\'d like to see', 'alternative options'
+            ]):
+                # Skip the rest of the response as it's summary info
+                break
+            
+            # Check for meal type headers with em dash: "Breakfast — Restaurant"
+            if '—' in line and any(meal in line_lower for meal in ['breakfast', 'lunch', 'dinner', 'snack']):
+                # Save previous food item if exists
+                if current_food_item:
+                    item = {
+                        "name": current_food_item,
+                        "calories": current_nutrition.get('calories'),
+                        "protein": current_nutrition.get('protein'),
+                        "restaurant": current_restaurant,
+                        "description": f"From {current_restaurant}"
+                    }
+                    meal_items.append(item)
+                
                 # Save previous meal if exists
                 if current_meal and meal_items:
+                    # Determine primary restaurant - if all items from same place, use that; else "Multiple Locations"
+                    restaurants = [item.get('restaurant', '') for item in meal_items if item.get('restaurant')]
+                    unique_restaurants = list(set(restaurants))
+                    primary_restaurant = unique_restaurants[0] if len(unique_restaurants) == 1 else "Multiple Locations"
+                    
                     meal_plan[current_meal] = {
-                        "restaurant": current_restaurant or "Multiple Locations",
+                        "restaurant": primary_restaurant,
                         "items": meal_items
                     }
                 
+                # Parse new meal header: "Breakfast — Restaurant"
+                parts = line.split('—', 1)
+                meal_part = parts[0].strip().lower()
+                restaurant_part = parts[1].strip() if len(parts) > 1 else ""
+                
                 # Determine meal type
-                meal_text = line_lower.rstrip(':')
-                if 'breakfast' in meal_text:
+                if 'breakfast' in meal_part:
                     current_meal = 'breakfast'
-                elif 'lunch' in meal_text:
+                elif 'lunch' in meal_part:
                     current_meal = 'lunch'
-                elif 'dinner' in meal_text:
+                elif 'dinner' in meal_part:
                     current_meal = 'dinner'
-                elif 'snack' in meal_text:
+                elif 'snack' in meal_part:
                     current_meal = 'snacks'
                 
+                current_restaurant = restaurant_part if restaurant_part else "Unknown Location"
                 meal_items = []
                 current_food_item = None
-                current_restaurant = None
                 current_nutrition = {}
                 i += 1
                 continue
             
-
-            
-            # Check for food item lines (format: "- Food Name (Restaurant)")
+            # Check for food item lines starting with "-"
             if line.startswith('- ') and current_meal:
                 food_line = line[2:].strip()  # Remove "- " prefix
                 
-                # Skip summary/nutrition lines that start with nutrition terms
-                food_line_lower = food_line.lower()
-                if any(food_line_lower.startswith(term) for term in [
-                    'calories:', 'protein:', 'fat:', 'carbs:', 'carbohydrates:', 
-                    'sodium:', 'fiber:', 'sugar:', 'daily', 'total'
+                # Skip if this looks like a nutrition summary line
+                if any(food_line.lower().startswith(term) for term in [
+                    'calories:', 'protein:', 'fat:', 'total fat:', 'carbs:', 'carbohydrates:', 
+                    'sodium:', 'fiber:', 'sugar:', 'daily', 'total', 'if you'
                 ]):
                     i += 1
                     continue
                 
                 # Save previous food item if exists
-                if current_food_item and current_restaurant:
+                if current_food_item:
                     item = {
                         "name": current_food_item,
                         "calories": current_nutrition.get('calories'),
                         "protein": current_nutrition.get('protein'),
+                        "restaurant": current_restaurant,
                         "description": f"From {current_restaurant}"
                     }
                     meal_items.append(item)
                 
-                # Extract food name and restaurant from "Food Name (Restaurant)" format
-                if '(' in food_line and ')' in food_line:
-                    # Split on the last opening parenthesis to handle foods with parentheses in name
-                    last_paren = food_line.rfind('(')
-                    current_food_item = food_line[:last_paren].strip()
-                    current_restaurant = food_line[last_paren+1:].rstrip(')').strip()
-                else:
-                    # No restaurant info in parentheses
-                    current_food_item = food_line
-                    current_restaurant = "Unknown Location"
-                
+                # Set new food item
+                current_food_item = food_line
                 current_nutrition = {}
                 
-                # Look ahead for nutrition information
+                # Look ahead for nutrition information (indented lines)
                 j = i + 1
-                while j < len(lines) and lines[j].startswith('  - '):
-                    nutrition_line = lines[j][4:].strip()  # Remove "  - "
+                while j < len(lines) and (lines[j].startswith('  - ') or lines[j].startswith('    ')):
+                    nutrition_line = lines[j].strip()
                     
-                    # Parse nutrition
+                    # Remove leading "- " if present
+                    if nutrition_line.startswith('- '):
+                        nutrition_line = nutrition_line[2:].strip()
+                    
+                    # Parse nutrition values
                     if nutrition_line.lower().startswith('calories:'):
                         cal_match = re.search(r'calories:\s*(\d+)', nutrition_line, re.IGNORECASE)
                         if cal_match:
@@ -132,24 +153,31 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
                     
                     j += 1
                 
-                i = j  # Skip the nutrition lines we just processed
+                # Set i to continue from after the nutrition lines
+                i = j
                 continue
             
             i += 1
         
         # Save the final item and meal
-        if current_food_item and current_restaurant:
+        if current_food_item:
             item = {
                 "name": current_food_item,
                 "calories": current_nutrition.get('calories'),
                 "protein": current_nutrition.get('protein'),
+                "restaurant": current_restaurant,
                 "description": f"From {current_restaurant}"
             }
             meal_items.append(item)
         
         if current_meal and meal_items:
+            # Determine primary restaurant for final meal
+            restaurants = [item.get('restaurant', '') for item in meal_items if item.get('restaurant')]
+            unique_restaurants = list(set(restaurants))
+            primary_restaurant = unique_restaurants[0] if len(unique_restaurants) == 1 else "Multiple Locations"
+            
             meal_plan[current_meal] = {
-                "restaurant": current_restaurant or "Multiple Locations",
+                "restaurant": primary_restaurant,
                 "items": meal_items
             }
         
@@ -202,15 +230,16 @@ def parse_food_item_inline(item_text: str) -> Optional[Dict[str, Any]]:
         # Check for format: "Restaurant: Food Name (nutrition info)"
         if ':' in item_text and '(' in item_text and ')' in item_text:
             # Split on the first colon to get restaurant and food+nutrition
-            parts = item_text.split(':', 1)
-            restaurant = parts[0].strip()
-            food_and_nutrition = parts[1].strip()
+            colon_index = item_text.find(':')
+            restaurant = item_text[:colon_index].strip()
+            food_and_nutrition = item_text[colon_index+1:].strip()
             
             # Extract food name and nutrition from parentheses
-            paren_match = re.match(r'^(.+?)\s*\(([^)]+)\).*$', food_and_nutrition)
-            if paren_match:
-                food_name = paren_match.group(1).strip()
-                nutrition_part = paren_match.group(2).strip()
+            paren_start = food_and_nutrition.find('(')
+            if paren_start > 0:
+                food_name = food_and_nutrition[:paren_start].strip()
+                paren_end = food_and_nutrition.rfind(')')
+                nutrition_part = food_and_nutrition[paren_start+1:paren_end].strip()
                 
                 item["name"] = food_name
                 item["description"] = f"From {restaurant}"
@@ -218,13 +247,13 @@ def parse_food_item_inline(item_text: str) -> Optional[Dict[str, Any]]:
                 # Parse nutrition from parentheses (comma-separated)
                 nutrition_items = [n.strip() for n in nutrition_part.split(',')]
                 for nutrition_item in nutrition_items:
-                    # Extract calories
+                    # Extract calories (look for "560 kcal")
                     cal_match = re.search(r'(\d+)\s*kcal', nutrition_item, re.IGNORECASE)
                     if cal_match:
                         item["calories"] = int(cal_match.group(1))
                         continue
                     
-                    # Extract protein (look for "Xg protein" or just "Xg" after other nutrients)
+                    # Extract protein (look for "29g protein")
                     protein_match = re.search(r'(\d+(?:\.\d+)?)\s*g\s*protein', nutrition_item, re.IGNORECASE)
                     if protein_match:
                         item["protein"] = float(protein_match.group(1))
@@ -234,10 +263,12 @@ def parse_food_item_inline(item_text: str) -> Optional[Dict[str, Any]]:
         
         # Check for format with parentheses only: "Food Name (nutrition info)"
         elif '(' in item_text and ')' in item_text:
-            paren_match = re.match(r'^(.+?)\s*\(([^)]+)\).*$', item_text)
-            if paren_match:
-                name_part = paren_match.group(1).strip()
-                nutrition_part = paren_match.group(2).strip()
+            paren_start = item_text.find('(')
+            paren_end = item_text.rfind(')')
+            
+            if paren_start > 0:
+                name_part = item_text[:paren_start].strip()
+                nutrition_part = item_text[paren_start+1:paren_end].strip()
                 
                 item["name"] = name_part
                 
@@ -255,29 +286,25 @@ def parse_food_item_inline(item_text: str) -> Optional[Dict[str, Any]]:
                     if protein_match:
                         item["protein"] = float(protein_match.group(1))
                         continue
+                
+                return item
         
         # Check for format with colon only: "Restaurant: Food Name"
         elif ':' in item_text:
-            parts = item_text.split(':', 1)
-            restaurant = parts[0].strip()
-            food_name = parts[1].strip()
+            colon_index = item_text.find(':')
+            restaurant = item_text[:colon_index].strip()
+            food_name = item_text[colon_index+1:].strip()
             
             item["name"] = food_name
             item["description"] = f"From {restaurant}"
-        
-        else:
-            # Just the food name
-            item["name"] = item_text.strip()
-        
-        # Return the item if we have at least a name
-        if item["name"]:
             return item
-        else:
-            return None
+        
+        # If no special format recognized, return None to fall back to other parsing
+        return None
             
     except Exception as e:
         logger.error(f"Error parsing inline food item '{item_text}': {e}")
-        return {"name": item_text, "calories": None, "protein": None, "description": ""}
+        return None
 
 def parse_food_item(item_text: str) -> Optional[Dict[str, Any]]:
     """
@@ -420,7 +447,34 @@ def build_agent_prompt(user_goals: Dict[str, Any]) -> str:
     else:
         prompt += "\n\nPlease use the `create_meal` tool for each requested meal type to provide specific food recommendations from Duke dining locations."
     
-    prompt += "\n\nFormat your response clearly by meal type (breakfast, lunch, dinner) and include restaurant names and nutritional information for each food item."
+    # Add detailed formatting instructions
+    prompt += """
+
+IMPORTANT OUTPUT FORMAT REQUIREMENTS:
+1. Format each meal header as: "Meal Type — Restaurant Name" (using em dash)
+2. List each food item with "- Food Name"
+3. Include nutrition details on indented lines under each food item
+4. Always include restaurant information for every meal
+5. Include at least calories and protein for each food item
+6. Use this exact format:
+
+Breakfast — Restaurant Name
+- Food Item Name
+  - Calories: XXX kcal
+  - Protein: XXg
+
+Lunch — Restaurant Name  
+- Food Item Name
+  - Calories: XXX kcal
+  - Protein: XXg
+
+Dinner — Restaurant Name
+- Food Item Name
+  - Calories: XXX kcal
+  - Protein: XXg
+
+7. Ensure every meal has a restaurant name specified
+8. Do not include summary sections or alternative suggestions"""
     
     return prompt
 
@@ -500,7 +554,7 @@ def health_check():
     """
     return jsonify({"status": "healthy", "message": "Duke Eats API is running"})
 
-# Parser debugging complete
+# Parser is working correctly
 
 @app.route('/')
 def serve_index():
