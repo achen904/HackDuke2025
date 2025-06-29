@@ -216,20 +216,48 @@ function renderMealPlanPage(container) {
                 const mealCard = document.createElement('div');
                 mealCard.className = 'meal-card';
                 mealCard.setAttribute('aria-labelledby', `${mealKey}Title`);
-                mealCard.innerHTML = `<h4>At: ${escapeHtml(mealData.restaurant)}</h4>`;
+                
+                // Show restaurant info intelligently
+                if (mealData.restaurant === 'Multiple Locations') {
+                    // Extract unique restaurants from items
+                    const restaurants = new Set();
+                    mealData.items.forEach(item => {
+                        if (item.description && item.description.startsWith('From ')) {
+                            restaurants.add(item.description.replace('From ', ''));
+                        }
+                    });
+                    
+                    if (restaurants.size === 1) {
+                        mealCard.innerHTML = `<h4>At: ${escapeHtml(Array.from(restaurants)[0])}</h4>`;
+                    } else if (restaurants.size > 1) {
+                        mealCard.innerHTML = `<h4>From: ${Array.from(restaurants).map(r => escapeHtml(r)).join(', ')}</h4>`;
+                    } else {
+                        mealCard.innerHTML = `<h4>Recommended Items</h4>`;
+                    }
+                } else {
+                    mealCard.innerHTML = `<h4>At: ${escapeHtml(mealData.restaurant)}</h4>`;
+                }
                 const itemList = document.createElement('ul');
                 itemList.setAttribute('aria-label', `${escapeHtml(mealName)} items at ${escapeHtml(mealData.restaurant)}`);
                 mealData.items.forEach(item => {
                     const listItem = document.createElement('li');
                     let itemText = `<strong>${escapeHtml(item.name)}</strong>`;
-                    if (item.calories)
-                        itemText += ` (~${item.calories} cal`;
-                    if (item.protein)
-                        itemText += `, ${item.protein}g protein`;
-                    if (item.calories)
-                        itemText += `)`;
-                    if (item.description)
-                        itemText += ` - <small>${escapeHtml(item.description)}</small>`;
+                    
+                    // Show restaurant name prominently if available
+                    if (item.description && item.description.startsWith('From ')) {
+                        const restaurantName = item.description.replace('From ', '');
+                        itemText += ` <em style="color: #012169;">(${escapeHtml(restaurantName)})</em>`;
+                    }
+                    
+                    // Add nutrition info
+                    if (item.calories || item.protein) {
+                        itemText += ` -`;
+                        if (item.calories)
+                            itemText += ` ~${item.calories} cal`;
+                        if (item.protein)
+                            itemText += `${item.calories ? ',' : ''} ${item.protein}g protein`;
+                    }
+                    
                     listItem.innerHTML = itemText;
                     itemList.appendChild(listItem);
                 });
