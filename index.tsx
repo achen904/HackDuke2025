@@ -1,3 +1,5 @@
+import { renderChatbot } from './chatbot';
+
 // --- Interfaces ---
 interface UserGoals {
   dietaryRestrictions: string[];
@@ -44,15 +46,27 @@ let userGoals: UserGoals = {
 let mealPlan: DailyMealPlan | null = null;
 let isLoading = false;
 let errorMessage = '';
+let chatbotInterface: { setPlan: (plan: any) => void } | null = null;
 
 // --- DOM Elements ---
 const root = document.getElementById('root')!;
+const chatbotContainer = document.getElementById('chatbot')!;
 
 // --- Render Functions ---
 
 function renderApp() {
   if (!root) return;
   root.innerHTML = ''; // Clear previous content
+
+  chatbotInterface = renderChatbot(chatbotContainer, (newPlan) => {
+    mealPlan = newPlan;
+    currentPage = 'mealPlan'; // Ensure the meal plan page is shown
+    renderApp(); // Re-render the whole app with the new plan
+  });
+
+  if (chatbotInterface && mealPlan) {
+    chatbotInterface.setPlan(mealPlan);
+  }
 
   const headerDiv = document.createElement('div');
   headerDiv.className = 'header';
@@ -219,7 +233,8 @@ async function handleSubmitGoals() {
         throw new Error(`Backend server error: ${response.status} ${errorData}`);
     }
 
-    const parsedPlan = await response.json() as DailyMealPlan;
+    const responseData = await response.json();
+    const parsedPlan = responseData.mealPlan as DailyMealPlan;
 
     // Ensure meals not consumed by user are set to null in the plan
     if (!userGoals.mealsConsumed.breakfast) parsedPlan.breakfast = null;
@@ -228,6 +243,9 @@ async function handleSubmitGoals() {
     if (!userGoals.mealsConsumed.snacks) parsedPlan.snacks = null;
     
     mealPlan = parsedPlan;
+    if (chatbotInterface) {
+      chatbotInterface.setPlan(mealPlan);
+    }
     currentPage = 'mealPlan';
   } catch (error) {
     console.error("Error fetching meal plan from backend:", error);

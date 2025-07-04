@@ -1,0 +1,103 @@
+/* Add some basic styling */
+body {
+    font-family: sans-serif;
+    margin: 0;
+    display: flex;
+}
+
+#root {
+    flex-grow: 1;
+    padding: 20px;
+}
+
+#chatbot {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 350px;
+    max-height: 500px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.3s ease-in-out;
+}
+
+#chatbot.collapsed {
+    width: 50px;
+    height: 50px;
+    cursor: pointer;
+}
+
+#chatbot-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+#chatbot-header {
+    padding: 10px;
+    background: #012169; /* Duke Blue */
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    text-align: center;
+}
+
+#chatbot-messages {
+    flex-grow: 1;
+    padding: 15px;
+    overflow-y: auto;
+    background: #f9f9f9;
+}
+
+.message {
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: 18px;
+    max-width: 85%;
+    word-wrap: break-word;
+}
+
+.user-message {
+    background: #007bff;
+    color: white;
+    align-self: flex-end;
+    margin-left: auto;
+}
+
+.bot-message {
+    background: #e9ecef;
+    color: #333;
+    align-self: flex-start;
+}
+
+.bot-message strong {
+    color: #012169;
+}
+
+#chatbot-input-container {
+    padding: 10px;
+    border-top: 1px solid #eee;
+    display: flex;
+}
+
+#chatbot-input {
+    flex-grow: 1;
+    border: 1px solid #ccc;
+    border-radius: 15px;
+    padding: 8px 12px;
+    margin-right: 8px;
+}
+
+#chatbot-send {
+    background: #012169;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+} 

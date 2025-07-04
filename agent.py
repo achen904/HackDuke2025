@@ -7,7 +7,9 @@ import faiss;
 import numpy as np;
 import openai
 import random
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
+import json
+import re
 
 load_dotenv()
 
@@ -482,190 +484,128 @@ If the user asks general nutrition questions not requiring a specific meal recom
 )
 
 @agent.tool
-def rank_foods(ctx: RunContext[str]) -> str:
-    # Connect to the SQLite database
-    conn = sqlite3.connect('duke_nutrition.db')
+def rank_foods(
+    ctx: RunContext[str],
+    preferences: str,
+    meal_type: str = "any",
+    num_results: int = 10,
+    allowed_foods: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Ranks food items from the database based on a user's preferences
+    and returns a structured list of food items.
+    """
+    conn = sqlite3.connect("duke_nutrition.db")
     cursor = conn.cursor()
 
-    nutrients = [
-        "calories",
-        "total_fat",
-        "saturated_fat",
-        "trans_fat",
-        "cholesterol",
-        "sodium",
-        "total_carbs",
-        "dietary_fiber",
-        "total_sugars",
-        "added_sugars",
-        "protein",
-        "calcium",
-        "iron",
-        "potassium",
-    ]
+    # Base query
+    query = "SELECT name, restaurant, section, calories, protein, total_fat, total_carbs, sodium, dietary_fiber FROM items WHERE calories > 0 AND protein > 0"
+    
+    if allowed_foods:
+        placeholders = ','.join('?' for _ in allowed_foods)
+        query += f" AND name IN ({placeholders})"
+        params = allowed_foods
+    else:
+        params = []
 
-    # Get existing columns to avoid duplicate ALTERs
-    existing_cols = {row[1] for row in cursor.execute("PRAGMA table_info(items)")}
-
-    for nutrient in nutrients:
-        title = f"{nutrient}_rank"
-
-        # Add the column only if it does not exist already
-        if title not in existing_cols:
-            cursor.execute(f"ALTER TABLE items ADD COLUMN {title}")
-
-        # (Re)calculate the ranking values – safe even if column already existed
-        cursor.executescript(
-            f"""
-            WITH ranked_product AS (
-                SELECT {nutrient},
-                       RANK() OVER (ORDER BY {nutrient} DESC) AS price_rank,
-                       COUNT(*) OVER ()                       AS total_rows
-                FROM items
-            )
-            UPDATE items
-            SET {title} = CASE
-                    WHEN ranked_product.price_rank <= ranked_product.total_rows / 3 THEN 'High'
-                    WHEN ranked_product.price_rank <= 2 * ranked_product.total_rows / 3 THEN 'Medium'
-                    ELSE 'Low'
-                END
-            FROM ranked_product
-            WHERE items.{nutrient} = ranked_product.{nutrient};
-            """
-        )
-
-    conn.commit()
+    cursor.execute(query, params)
+    items = cursor.fetchall()
     conn.close()
+
+    if not items:
+        return []
+
+    # Simple preference weighting (can be expanded)
+    # This is a basic implementation. A more advanced version could use embeddings.
+    pref_lower = preferences.lower()
+    
+    def score_item(item):
+        s = 0
+        name, _, _, calories, protein, fat, carbs, sodium, fiber = item
+        name = name.lower()
+
+        # Meal-type scoring
+        if meal_type == 'breakfast':
+            if any(bf_word in name for bf_word in ['egg', 'bacon', 'sausage', 'oatmeal', 'pancake', 'waffle', 'bagel', 'pastry', 'yogurt']):
+                s += 50
+            if any(ld_word in name for ld_word in ['pasta', 'burger', 'steak', 'sandwich', 'dinner', 'entree']):
+                s -= 50
+        elif meal_type in ['lunch', 'dinner']:
+            if any(ld_word in name for ld_word in ['pasta', 'burger', 'steak', 'sandwich', 'entree', 'chicken', 'beef', 'salmon']):
+                s += 50
+            if any(bf_word in name for bf_word in ['pancake', 'waffle', 'breakfast']):
+                s -= 50
+
+        # Goal-based scoring
+        if 'high protein' in pref_lower or 'muscle' in pref_lower:
+            s += protein * 2
+        if 'low carb' in pref_lower:
+            s -= carbs * 2
+        if 'low fat' in pref_lower:
+            s -= fat
+        if 'low calorie' in pref_lower or 'weight loss' in pref_lower:
+            s -= calories * 0.1
+        if 'high calorie' in pref_lower or 'weight gain' in pref_lower:
+            s += calories * 0.1
+        
+        # Keyword scoring
+        for keyword in pref_lower.split():
+            if keyword in name:
+                s += 20
+        
+        return s
+
+    sorted_items = sorted(items, key=score_item, reverse=True)
+
+    # Format output as a list of dictionaries
+    output_items = []
+    for item in sorted_items[:num_results]:
+        name, restaurant, section, calories, protein, fat, carbs, sodium, fiber = item
+        output_items.append({
+            "name": name,
+            "restaurant": restaurant,
+            "section": section,
+            "calories": calories,
+            "protein": protein,
+            "fat": fat,
+            "carbs": carbs,
+            "sodium": sodium,
+            "fiber": fiber
+        })
+
+    return output_items
 
 @agent.tool
 def create_meal(
     ctx: RunContext[str],
     preferences: str,
-    num_meals: int = 3,
-    allowed_foods: Optional[List[str]] = None,
-) -> str:
-    conn = sqlite3.connect("duke_nutrition.db")
-    cursor = conn.cursor()
+    meal_type: str = "any",
+) -> Dict[str, Any]:
+    """
+    Finds a main dish based on preferences and then uses `compose_complete_meal`
+    to build a full meal around it. Returns a structured meal object.
+    """
+    try:
+        # Find a new main item for the meal
+        ranked_mains = rank_foods(
+            ctx,
+            preferences=f"main dish for {meal_type}, {preferences}",
+            meal_type=meal_type,
+            num_results=5
+        )
 
-    # Fetch restaurant name, section, and meal_period along with nutrition data
-    cursor.execute(
-        """
-        SELECT name, restaurant, meal_period, section,  -- Added meal_period and section
-               calories, total_fat, saturated_fat, trans_fat, cholesterol, sodium, 
-               total_carbs, dietary_fiber, total_sugars, added_sugars, protein, 
-               calcium, iron, potassium,
-               calories_rank, total_fat_rank, saturated_fat_rank, trans_fat_rank, 
-               cholesterol_rank, sodium_rank, total_carbs_rank, dietary_fiber_rank, 
-               total_sugars_rank, added_sugars_rank, protein_rank, calcium_rank, 
-               iron_rank, potassium_rank
-        FROM items
-        """
-    )
-    data = cursor.fetchall()
+        if not ranked_mains:
+            return {"restaurant": "Not Found", "items": []}
 
-    # If a subset of food names is provided, filter rows early
-    if allowed_foods:
-        allowed_set = set(f.lower() for f in allowed_foods)
-        # Assuming name is at index 0
-        data = [row for row in data if row[0].lower() in allowed_set]
+        # Take the top-ranked main item
+        main_item = ranked_mains[0]
 
-    # Filter out items with invalid nutrition data
-    valid_data = []
-    for row in data:
-        if validate_nutrition_data(row):
-            valid_data.append(row)
-    
-    data = valid_data
+        # Compose a full meal around the main item
+        return compose_complete_meal(ctx, main_item=json.dumps(main_item))
 
-    conn.close()
-
-    food_names = []
-    food_restaurants = []
-    food_meal_periods = []  # New list to store meal periods
-    food_sections = []      # New list to store sections
-    numeric_info = []       # list of tuples (14 numeric)
-    rank_info = []          # list of tuples (14 rank strings)
-
-    for row in data:
-        food_names.append(row[0])
-        food_restaurants.append(row[1])
-        food_meal_periods.append(row[2])  # Store meal_period
-        food_sections.append(row[3])      # Store section
-        numeric_info.append(row[4:18])    # Adjust indices: numeric data now starts at index 4
-        rank_info.append(row[18:])        # Adjust indices: rank data now starts at index 18
-
-
-    # Load pre-trained sentence embedding model
-    # Ensure you have sentence-transformers installed: pip install sentence-transformers
-    model = SentenceTransformer("paraphrase-MiniLM-L6-v2")
-
-    # Build textual description from ranks for embedding similarity
-    food_descriptions = [
-        f"{r[0]} Calories, {r[1]} Total Fat, {r[2]} Saturated Fat, {r[3]} Trans-Fat, {r[4]} Cholesterol, {r[5]} Sodium, {r[6]} Total Carbs, {r[7]} Dietary Fiber, {r[8]} Total Sugars, {r[9]} Added Sugars, {r[10]} Protein, {r[11]} Calcium, {r[12]} Iron, {r[13]} Potassium"
-        for r in rank_info
-    ]
-
-    # Generate embeddings
-    embeddings = model.encode(food_descriptions)
-
-    # Convert embeddings to numpy array
-    embeddings_np = np.array(embeddings).astype('float32')
-
-    if embeddings_np.shape[0] == 0: # No food items match, possibly after filtering
-        return str([]) # Return empty list as string
-
-    faiss.normalize_L2(embeddings_np)
-
-    # Create a FAISS index (using Inner Product distance metric)
-    index = faiss.IndexFlatIP(embeddings_np.shape[1])
-    index.add(embeddings_np)
-
-    user_pref_embedding = model.encode([preferences]).astype('float32')
-    faiss.normalize_L2(user_pref_embedding)
-
-
-    # Find top food items from FAISS
-    # Ensure num_meals is not greater than the number of items in the index
-    k = min(num_meals, embeddings_np.shape[0])
-    if k == 0:
-        return str([])
-        
-    D, I = index.search(user_pref_embedding, k)
-
-    meal_plan = []
-    for i in range(k): # Iterate up to k (number of actual results found)
-        idx = I[0][i]
-        if idx < 0 or idx >= len(food_names): # faiss can return -1 if not enough neighbors
-            continue
-
-        food_item_name = food_names[idx]
-        food_item_restaurant = food_restaurants[idx]
-        food_item_meal_period = food_meal_periods[idx]  # Get meal_period
-        food_item_section = food_sections[idx]          # Get section
-        numbers = numeric_info[idx]
-        
-        meal_plan.append({
-            "food": food_item_name,
-            "restaurant": food_item_restaurant,
-            "meal_period": food_item_meal_period,  # Include meal_period
-            "section": food_item_section,          # Include section
-            "calories": numbers[0],
-            "total_fat": numbers[1],
-            "saturated_fat": numbers[2],
-            "trans_fat": numbers[3],
-            "cholesterol": numbers[4],
-            "sodium": numbers[5],
-            "total_carbs": numbers[6],
-            "dietary_fiber": numbers[7],
-            "total_sugars": numbers[8],
-            "added_sugars": numbers[9],
-            "protein": numbers[10],
-            "calcium": numbers[11],
-            "iron": numbers[12],
-            "potassium": numbers[13],
-        })
-
-    return str(meal_plan)
+    except Exception as e:
+        ctx.log.error(f"Error in create_meal: {e}")
+        return {"restaurant": "Error", "items": [{"name": "Could not generate a meal"}]}
 
 @agent.tool
 def build_custom_meal(
@@ -855,8 +795,6 @@ def build_custom_meal(
     
     return str(result)
 
-
-
 @agent.tool  
 def get_allergens(ctx: RunContext[str]) -> str:
     """Get the player's allergens."""
@@ -900,8 +838,6 @@ def filter_foods(
     conn.close()
 
     return [r[0] for r in rows]
-
-
 
 @agent.tool
 def get_restaurant_sections(ctx: RunContext[str], restaurant: Optional[str] = None) -> str:
@@ -990,264 +926,63 @@ def build_daily_meal_plan(
     ctx: RunContext[str],
     target_calories: int,
     target_protein: int,
-    different_restaurants: bool = True,
-    max_items_per_restaurant: int = 3,
     preferences: str = ""
 ) -> str:
-    """Build a comprehensive daily meal plan to meet specific nutritional targets.
-    
-    Parameters
-    ----------
-    target_calories : int
-        Target calories for the day
-    target_protein : int
-        Target protein in grams
-    different_restaurants : bool
-        Whether to ensure meals come from different restaurants
-    max_items_per_restaurant : int
-        Maximum number of items to select from each restaurant.
-        Use 1 for maximum restaurant diversity (each meal from different restaurant).
-        Use 2-3 for balanced variety while allowing some restaurants to appear multiple times.
-    preferences : str
-        User preferences for food types or dietary restrictions
     """
+    Builds a balanced, daily meal plan with diverse restaurants, ensuring meals are not duplicated.
+    """
+    num_meals = 3 # Assuming breakfast, lunch, dinner
+    per_meal_calories = target_calories // num_meals
+    per_meal_protein = target_protein // num_meals
     
-    conn = sqlite3.connect("duke_nutrition.db")
-    cursor = conn.cursor()
+    meal_plan = {}
+    used_items = set()
+    used_restaurants = set()
     
-    # Get all food items with nutrition data
-    cursor.execute(
-        """
-        SELECT name, restaurant, section, calories, protein, total_fat, total_carbs,
-               sodium, dietary_fiber, total_sugars, calcium, iron, potassium
-        FROM items 
-        WHERE calories IS NOT NULL AND calories > 0
-        ORDER BY restaurant, calories DESC
-        """
-    )
-    
-    all_items = cursor.fetchall()
-    conn.close()
-    
-    if not all_items:
-        return "No food items found in database"
-    
-    # Filter out items with invalid nutrition data
-    valid_items = []
-    filtered_count = 0
-    
-    for item in all_items:
-        if validate_nutrition_data(item):
-            valid_items.append(item)
-        else:
-            filtered_count += 1
-    
-    if filtered_count > 0:
-        print(f"Filtered out {filtered_count} items with unrealistic nutrition data")
-    
-    if not valid_items:
-        return "No valid food items found after nutrition validation"
-    
-    # Group items by restaurant
-    restaurant_items = {}
-    for item in valid_items:
-        restaurant = item[1]
-        if restaurant not in restaurant_items:
-            restaurant_items[restaurant] = []
-        restaurant_items[restaurant].append(item)
-    
-    # Filter based on preferences
-    if preferences:
-        pref_lower = preferences.lower()
-        filtered_items = {}
+    for meal_type in ["breakfast", "lunch", "dinner"]:
+        # Find a main dish that fits the preferences and calorie/protein targets
+        main_items = rank_foods(
+            ctx,
+            preferences=f"main dish for {meal_type}, {preferences}",
+            meal_type=meal_type,
+            num_results=40 # Get a larger selection to ensure variety
+        )
         
-        for restaurant, items in restaurant_items.items():
-            filtered_restaurant_items = []
-            
-            for item in items:
-                include_item = True
-                item_name_lower = item[0].lower()
-                
-                # Apply dietary restrictions
-                if any(word in pref_lower for word in ["vegetarian", "vegan"]):
-                    if any(meat in item_name_lower for meat in ["chicken", "beef", "pork", "fish", "salmon", "turkey", "ham"]):
-                        include_item = False
-                
-                if "low-sodium" in pref_lower and item[7] > 600:  # sodium > 600mg
-                    include_item = False
-                    
-                if "low-fat" in pref_lower and item[5] > 20:  # fat > 20g
-                    include_item = False
-                
-                if include_item:
-                    filtered_restaurant_items.append(item)
-            
-            if filtered_restaurant_items:
-                filtered_items[restaurant] = filtered_restaurant_items
-        
-        restaurant_items = filtered_items
-    
-    if not restaurant_items:
-        return "No suitable items found matching preferences"
-    
-    # Build meal plan
-    selected_items = []
-    current_calories = 0
-    current_protein = 0
-    restaurant_counts = {restaurant: 0 for restaurant in restaurant_items.keys()}
-    
-    # Calculate efficiency scores for all items (calories and protein per item)
-    scored_items = []
-    for restaurant, items in restaurant_items.items():
-        for item in items:
-            # Calculate efficiency: how well this item helps meet remaining targets
-            calories_needed = max(target_calories - current_calories, 1)
-            protein_needed = max(target_protein - current_protein, 1)
-            
-            calorie_efficiency = item[3] / calories_needed if calories_needed > 0 else 0
-            protein_efficiency = item[4] / protein_needed if protein_needed > 0 else 0
-            
-            # Combined score prioritizing items that help meet both targets
-            base_score = (calorie_efficiency + protein_efficiency * 2)  # Weight protein higher
-            
-            # Add randomization factor to create variety (±15% variation)
-            randomization_factor = random.uniform(0.85, 1.15)
-            combined_score = base_score * randomization_factor
-            
-            # Add diversity bonus to encourage variety in restaurants and meal types
-            restaurant_penalty = restaurant_counts[restaurant] * 0.1  # Reduce score for already-used restaurants
-            
-            # Apply stronger penalty when maximum diversity is requested
-            if max_items_per_restaurant == 1:
-                restaurant_penalty = restaurant_counts[restaurant] * 0.5  # Much stronger penalty for max diversity
-            
-            diversity_bonus = random.uniform(0.95, 1.05)  # Small random boost
-            
-            final_score = (combined_score - restaurant_penalty) * diversity_bonus
-            
-            scored_items.append((final_score, restaurant, item))
-    
-    # Shuffle items with similar scores to add more variety
-    # Group items by score ranges and shuffle within groups
-    scored_items.sort(key=lambda x: x[0], reverse=True)
-    
-    # Add some randomization to top candidates
-    if len(scored_items) > 5:
-        # Take top 20% and shuffle them to add variety
-        top_count = max(3, len(scored_items) // 5)
-        top_items = scored_items[:top_count]
-        rest_items = scored_items[top_count:]
-        
-        random.shuffle(top_items)
-        scored_items = top_items + rest_items
-    
-    # Select items iteratively until targets are met or we run out of options
-    for score, restaurant, item in scored_items:
-        # Check restaurant limits
-        if different_restaurants and restaurant_counts[restaurant] >= max_items_per_restaurant:
+        # Filter out already used items
+        available_mains = [item for item in main_items if item['name'] not in used_items]
+
+        if not available_mains:
             continue
+
+        # Try to pick from a new restaurant first
+        diverse_mains = [item for item in available_mains if item['restaurant'] not in used_restaurants]
         
-        # Check if adding this item would exceed targets by too much (allow 10% overage)
-        projected_calories = current_calories + item[3]
-        projected_protein = current_protein + item[4]
+        # If we have options from new restaurants, use them. Otherwise, fall back to what's available.
+        selection_pool = diverse_mains if diverse_mains else available_mains
         
-        if projected_calories > target_calories * 1.1:  # Don't exceed by more than 10%
-            continue
+        # Find the main item that is closest to our per-meal calorie goal from the selected pool
+        best_main = min(selection_pool, key=lambda x: abs(x['calories'] - per_meal_calories))
+
+        # Build a complete meal around this main item
+        full_meal = compose_complete_meal(ctx, main_item=json.dumps(best_main))
         
-        # Add the item
-        selected_items.append(item)
-        current_calories += item[3]
-        current_protein += item[4]
-        restaurant_counts[restaurant] += 1
+        # Add the full meal to the plan and track what's been used
+        if full_meal and full_meal.get("items"):
+            meal_plan[meal_type] = full_meal
+            used_restaurants.add(full_meal['restaurant'])
+            for item in full_meal['items']:
+                used_items.add(item['name'])
+
+    # Format the plan into a string for the response
+    final_plan_str = []
+    if meal_plan.get("breakfast"):
+        final_plan_str.append(format_meal_to_string("Breakfast", meal_plan["breakfast"]))
+    if meal_plan.get("lunch"):
+        final_plan_str.append(format_meal_to_string("Lunch", meal_plan["lunch"]))
+    if meal_plan.get("dinner"):
+        final_plan_str.append(format_meal_to_string("Dinner", meal_plan["dinner"]))
         
-        # Check if we've met our targets
-        if current_calories >= target_calories * 0.95 and current_protein >= target_protein * 0.95:
-            break
-    
-    # If we haven't met targets, try to add more high-efficiency items
-    if current_calories < target_calories * 0.9 or current_protein < target_protein * 0.9:
-        # Relax restaurant restrictions and try again
-        for score, restaurant, item in scored_items:
-            if item in [selected[0] for selected in selected_items]:  # Already selected
-                continue
-                
-            projected_calories = current_calories + item[3]
-            if projected_calories > target_calories * 1.2:  # More lenient overage
-                continue
-            
-            selected_items.append(item)
-            current_calories += item[3]
-            current_protein += item[4]
-            restaurant_counts[restaurant] += 1
-            
-            if current_calories >= target_calories * 0.9 and current_protein >= target_protein * 0.9:
-                break
-    
-    # Format results
-    if not selected_items:
-        return "Could not build a meal plan with the given constraints"
-    
-    # Group selected items by restaurant for presentation
-    meal_plan_by_restaurant = {}
-    total_nutrition = {
-        "calories": 0, "protein": 0, "fat": 0, "carbs": 0,
-        "sodium": 0, "fiber": 0, "sugar": 0, "calcium": 0, "iron": 0, "potassium": 0
-    }
-    
-    for item in selected_items:
-        restaurant = item[1]
-        if restaurant not in meal_plan_by_restaurant:
-            meal_plan_by_restaurant[restaurant] = []
-        
-        # Expand structured meals (add sides/sauces if needed)
-        expanded_items = expand_structured_meal(item, restaurant)
-        
-        for expanded_item in expanded_items:
-            item_info = {
-                "name": expanded_item[0],
-                "section": expanded_item[2],
-                "calories": expanded_item[3],
-                "protein": expanded_item[4],
-                "fat": expanded_item[5],
-                "carbs": expanded_item[6],
-                "sodium": expanded_item[7],
-                "fiber": expanded_item[8],
-                "sugar": expanded_item[9],
-                "calcium": expanded_item[10],
-                "iron": expanded_item[11],
-                "potassium": expanded_item[12]
-            }
-            
-            meal_plan_by_restaurant[restaurant].append(item_info)
-            
-            # Add to totals
-            total_nutrition["calories"] += expanded_item[3] or 0
-            total_nutrition["protein"] += expanded_item[4] or 0
-            total_nutrition["fat"] += expanded_item[5] or 0
-            total_nutrition["carbs"] += expanded_item[6] or 0
-            total_nutrition["sodium"] += expanded_item[7] or 0
-            total_nutrition["fiber"] += expanded_item[8] or 0
-            total_nutrition["sugar"] += expanded_item[9] or 0
-            total_nutrition["calcium"] += expanded_item[10] or 0
-            total_nutrition["iron"] += expanded_item[11] or 0
-            total_nutrition["potassium"] += expanded_item[12] or 0
-    
-    result = {
-        "meal_plan": meal_plan_by_restaurant,
-        "targets": {
-            "target_calories": target_calories,
-            "target_protein": target_protein
-        },
-        "nutrition_summary": total_nutrition,
-        "target_achievement": {
-            "calories_percentage": round((total_nutrition["calories"] / target_calories) * 100, 1),
-            "protein_percentage": round((total_nutrition["protein"] / target_protein) * 100, 1)
-        },
-        "total_items": len(selected_items),
-        "restaurants_used": len(meal_plan_by_restaurant)
-    }
-    
-    return str(result)
+    return "\n\n".join(filter(None, final_plan_str))
 
 @agent.tool
 def check_nutrition_data_quality(ctx: RunContext[str], show_invalid: bool = True) -> str:
@@ -1307,6 +1042,185 @@ def check_nutrition_data_quality(ctx: RunContext[str], show_invalid: bool = True
             })
     
     return str(result)
+
+@agent.tool
+def get_restaurant_summary(ctx: RunContext[str], restaurant: str) -> str:
+    """
+    Get a summary of the types of food available at a given restaurant.
+    """
+    conn = sqlite3.connect("duke_nutrition.db")
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT DISTINCT section FROM items WHERE restaurant = ? AND section IS NOT 'General'",
+        (restaurant,)
+    )
+    
+    sections = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    
+    if not sections:
+        return f"No specific food categories found for {restaurant}."
+    
+    return f"Restaurant {restaurant} has the following food categories: {', '.join(sections)}"
+
+def format_meal_to_string(meal_name: str, meal_data: Dict) -> str:
+    """Formats a single meal object into a string."""
+    if not meal_data or not meal_data.get("items"):
+        return ""
+    
+    lines = [f"{meal_name.capitalize()} — {meal_data.get('restaurant', 'Unknown')}"]
+    for item in meal_data["items"]:
+        lines.append(f"- {item['name']}")
+        if item.get("calories"):
+            lines.append(f"  - Calories: {item['calories']} kcal")
+        if item.get("protein"):
+            lines.append(f"  - Protein: {item['protein']}g")
+    return "\n".join(lines)
+
+@agent.tool
+def compose_complete_meal(
+    ctx: RunContext[str],
+    main_item: str,
+) -> Dict[str, Any]:
+    """
+    Takes a main food item (as a JSON string) and finds complementary
+    sides from the same restaurant to create a complete meal object.
+    """
+    main_item_data = json.loads(main_item)
+    restaurant = main_item_data.get("restaurant")
+
+    if not restaurant:
+        return {
+            "restaurant": "Unknown",
+            "items": [main_item_data]
+        }
+
+    # Find potential sides from the same restaurant
+    conn = sqlite3.connect("duke_nutrition.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT name, restaurant, section, calories, protein FROM items WHERE restaurant = ? AND section LIKE '%side%'",
+        (restaurant,)
+    )
+    sides = cursor.fetchall()
+    conn.close()
+
+    # Simple logic: pick one or two sides
+    meal_items = [main_item_data]
+    if sides:
+        # Prioritize common sides like fries, salad, etc.
+        sorted_sides = sorted(sides, key=lambda s: 1 if any(kw in s[0].lower() for kw in ['fries', 'salad', 'rice', 'vegetable']) else 0, reverse=True)
+        meal_items.append({
+            "name": sorted_sides[0][0],
+            "calories": sorted_sides[0][3],
+            "protein": sorted_sides[0][4],
+            "restaurant": sorted_sides[0][1]
+        })
+
+    return {
+        "restaurant": restaurant,
+        "items": meal_items
+    }
+
+@agent.tool
+def add_item_to_meal(
+    ctx: RunContext[str],
+    meal_to_add_to: str,
+    item_name: str,
+    current_plan_json: str,
+) -> Dict[str, Any]:
+    """
+    Adds a single food item to a specific meal in the current meal plan.
+    Use this when the user wants to add a specific item to an existing meal.
+    """
+    try:
+        current_plan = json.loads(current_plan_json)
+        meal_key = meal_to_add_to.lower()
+
+        # Find the requested item in the database
+        conn = sqlite3.connect("duke_nutrition.db")
+        cursor = conn.cursor()
+        # Use LIKE to find items with similar names
+        cursor.execute(
+            "SELECT name, restaurant, calories, protein FROM items WHERE name LIKE ? ORDER BY length(name) ASC LIMIT 1",
+            (f"%{item_name}%",)
+        )
+        item_data = cursor.fetchone()
+        conn.close()
+
+        if not item_data:
+            # If item not found, just return the original plan
+            return current_plan
+
+        new_item = {
+            "name": item_data[0],
+            "restaurant": item_data[1],
+            "calories": item_data[2],
+            "protein": item_data[3],
+        }
+
+        # If the meal doesn't exist yet (e.g., adding a snack), create it
+        if not current_plan.get(meal_key):
+            current_plan[meal_key] = {
+                "restaurant": new_item["restaurant"],
+                "items": []
+            }
+
+        # Add the new item to the specified meal
+        current_plan[meal_key]["items"].append(new_item)
+        
+        # If the meal restaurant was generic, update it
+        if current_plan[meal_key]["restaurant"] in ["Unknown", "Multiple Locations"]:
+             current_plan[meal_key]["restaurant"] = new_item["restaurant"]
+
+        return current_plan
+
+    except Exception as e:
+        ctx.log.error(f"Error in add_item_to_meal: {e}")
+        return json.loads(current_plan_json) # Fallback to original plan
+
+@agent.tool
+def replace_meal(
+    ctx: RunContext[str],
+    meal_to_replace: str,
+    preferences: str,
+    current_plan_json: str,
+) -> Dict[str, Any]:
+    """
+    Replaces a single meal in an existing plan with a new, cohesively built meal.
+    """
+    try:
+        current_plan = json.loads(current_plan_json)
+        meal_to_replace = meal_to_replace.lower()
+
+        # Find a new main item for the meal
+        ranked_mains = rank_foods(
+            ctx,
+            preferences=f"main dish for {meal_to_replace}, {preferences}",
+            meal_type=meal_to_replace,
+            num_results=5  # Get a few options
+        )
+
+        if not ranked_mains:
+            return current_plan # Return original plan if no items found
+
+        # Take the top-ranked main item
+        main_item = ranked_mains[0]
+
+        # Compose a full meal around the main item
+        new_meal = compose_complete_meal(ctx, main_item=json.dumps(main_item))
+
+        # Update the plan with the new, complete meal, but only if it's valid
+        if new_meal and new_meal.get("items"):
+            current_plan[meal_to_replace] = new_meal
+        
+        return current_plan
+
+    except Exception as e:
+        ctx.log.error(f"Error in replace_meal: {e}")
+        # On failure, return the original plan to avoid losing it
+        return json.loads(current_plan_json)
 
 def main():
     """Simple CLI loop to chat with the agent while preserving context."""

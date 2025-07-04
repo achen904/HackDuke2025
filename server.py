@@ -396,7 +396,30 @@ def parse_food_item(item_text: str) -> Optional[Dict[str, Any]]:
 def build_agent_prompt(user_goals: Dict[str, Any]) -> str:
     """
     Build a prompt for the agent based on user goals.
+    This function now handles both initial creation and refinement.
     """
+    # Check if this is a refinement of an existing plan
+    if user_goals.get('currentPlan') and user_goals.get('specificGoals'):
+        current_plan_json = json.dumps(user_goals['currentPlan'])
+        user_request = user_goals['specificGoals']
+        
+        prompt = f"""You are a helpful and conversational meal plan assistant.
+        The user wants to discuss their current meal plan. Their request is: "{user_request}"
+
+        Your primary goal is to be helpful and chat with the user. However, you also have tools you can use.
+
+        - If the user's request is a clear command to ADD an item (e.g., "add fries to lunch"), use the `add_item_to_meal` tool.
+        - If the user's request is a clear command to REPLACE a meal (e.g., "I want a different dinner"), use the `replace_meal` tool.
+        - For anything else (e.g., asking a question, making a comment), respond conversationally as a helpful assistant. DO NOT use a tool if the user is not asking for a specific change.
+
+        The user's current meal plan is provided here for your context:
+        {json.dumps(user_goals['currentPlan'], indent=2)}
+        
+        You must always pass the `current_plan_json` to any tool you use.
+        """
+        return prompt
+
+    # --- This is the logic for initial plan creation ---
     prompt_parts = []
     
     # Add dietary restrictions
@@ -441,6 +464,8 @@ def build_agent_prompt(user_goals: Dict[str, Any]) -> str:
     # Build the final prompt
     prompt = "Create a daily meal plan with the following requirements:\n" + '\n'.join(f"- {part}" for part in prompt_parts)
     
+    prompt += "\n\nFirst, use the `get_restaurant_summary` tool to understand the types of food available at a few different restaurants. Then, proceed with meal creation."
+
     # Add specific instructions to use the tools
     if 'breakfast' in needed_meals and 'lunch' in needed_meals and 'dinner' in needed_meals:
         prompt += "\n\nPlease use the `build_daily_meal_plan` tool to create a comprehensive meal plan that meets these requirements. Make sure to include specific food items from Duke dining locations with nutritional information."
@@ -503,16 +528,32 @@ def get_meal_plan():
             logger.info(f"Agent response type: {type(agent_response)}")
             logger.info(f"Agent response: {agent_response}")
             
-            # Extract the data from the agent response
-            if hasattr(agent_response, 'output'):
-                agent_text = str(agent_response.output)
-            elif hasattr(agent_response, 'data'):
-                agent_text = str(agent_response.data)
+            # Check if the agent returned a complete plan object (from replace_meal)
+            if isinstance(agent_response.data, dict):
+                meal_plan = agent_response.data
+                # We need to format this dict back to text for the chatbot display
+                agent_text = ""
+                if meal_plan.get("breakfast"):
+                    agent_text += format_meal_to_string("breakfast", meal_plan["breakfast"]) + "\n\n"
+                if meal_plan.get("lunch"):
+                    agent_text += format_meal_to_string("lunch", meal_plan["lunch"]) + "\n\n"
+                if meal_plan.get("dinner"):
+                    agent_text += format_meal_to_string("dinner", meal_plan["dinner"]) + "\n\n"
+                if meal_plan.get("snacks"):
+                    agent_text += format_meal_to_string("snacks", meal_plan["snacks"]) + "\n\n"
+                agent_text = agent_text.strip()
             else:
-                agent_text = str(agent_response)
+                # Original flow: parse the text response from the agent
+                if hasattr(agent_response, 'output'):
+                    agent_text = str(agent_response.output)
+                elif hasattr(agent_response, 'data'):
+                    agent_text = str(agent_response.data)
+                else:
+                    agent_text = str(agent_response)
                 
-            logger.info(f"Agent text for parsing: {agent_text}")
-            
+                logger.info(f"Agent text for parsing: {agent_text}")
+                meal_plan = parse_agent_response(agent_text)
+
         except Exception as e:
             logger.error(f"Error calling agent: {e}")
             logger.error(f"Traceback: {traceback.format_exc()}")
@@ -520,9 +561,6 @@ def get_meal_plan():
                 "error": "Failed to call nutrition agent",
                 "details": str(e)
             }), 500
-        
-        # Parse the agent response to structured data
-        meal_plan = parse_agent_response(agent_text)
         
         # Filter meals based on user preferences
         meals_consumed = user_goals.get('mealsConsumed', {})
@@ -537,7 +575,10 @@ def get_meal_plan():
         
         logger.info(f"Final meal plan: {meal_plan}")
         
-        return jsonify(meal_plan)
+        return jsonify({
+            "mealPlan": meal_plan,
+            "rawText": agent_text
+        })
         
     except Exception as e:
         logger.error(f"Error generating meal plan: {e}")
@@ -546,6 +587,20 @@ def get_meal_plan():
             "error": "Failed to generate meal plan",
             "details": str(e)
         }), 500
+
+def format_meal_to_string(meal_name: str, meal_data: Dict) -> str:
+    """Helper to format a meal object into a string, to be used for agent's text response."""
+    if not meal_data or not meal_data.get("items"):
+        return ""
+    
+    lines = [f"{meal_name.capitalize()} — {meal_data.get('restaurant', 'Unknown')}"]
+    for item in meal_data["items"]:
+        lines.append(f"- {item['name']}")
+        if item.get("calories"):
+            lines.append(f"  - Calories: {item['calories']} kcal")
+        if item.get("protein"):
+            lines.append(f"  - Protein: {item['protein']}g")
+    return "\n".join(lines)
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
