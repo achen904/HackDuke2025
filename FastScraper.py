@@ -1045,29 +1045,15 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                         if match:
                                             item_id = match.group(1)
                                     
-                                    # Create unique key using item ID if available (ignore meal period for true uniqueness)
-                                    if item_id:
-                                        unique_key = f"{item_id}_{unit_name}"
-                                    else:
-                                        unique_key = f"{food_name}_{unit_name}_{actual_meal_period}"
+                                    # Create unique key that ALWAYS includes section to allow same items in different sections
+                                    # Always include section to handle cases where same item ID appears in multiple sections
+                                    unique_key = f"{food_name}_{unit_name}_{actual_meal_period}_{current_section}"
                                     
-                                    # Check if we've seen this item before
+                                    # Check if we've seen this item before - but only skip if it's truly the same item in the same context
                                     if unique_key in processed_names:
-                                        # Check if current section has higher priority than stored section
                                         stored_item = processed_names[unique_key]
-                                        if should_update_section(stored_item['section'], current_section):
-                                            print(f"  Updating section for {food_name}: '{stored_item['section']}' → '{current_section}'")
-                                            # Update the stored item with better section
-                                            for i, item in enumerate(all_items_nutrition):
-                                                if item[0] == food_name and item[1] == unit_name:
-                                                    all_items_nutrition[i] = (food_name, unit_name, actual_meal_period, current_section, item[4])
-                                                    break
-                                            processed_names[unique_key]['section'] = current_section
-                                        else:
-                                            if item_id:
-                                                print(f"  Skipping duplicate: {food_name} (same item ID: {item_id}, keeping section: {stored_item['section']})")
-                                            else:
-                                                print(f"  Skipping duplicate: {food_name} (same name, keeping section: {stored_item['section']})")
+                                        # Since unique_key now includes section, this should only happen if it's truly the same item
+                                        print(f"  Skipping exact duplicate: {food_name} in section '{current_section}' (already processed)")
                                         continue
                                     
                                     # Store item info for future section comparisons
@@ -1095,28 +1081,31 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
             
             # For restaurants with many meal periods but same items, default to "All Day"
             if all_items_nutrition:
-                # Keep track of unique items to avoid duplicates
-                seen_items = {}  # key: item_name, value: (meal_period, section)
+                # Deduplicate while allowing same item name in different sections
+                seen_items = {}  # key: (item_name, section) to allow duplicates across sections
                 unique_items = []
-                
+
                 for item in all_items_nutrition:
                     item_name, restaurant, meal_period, section, nutrition = item
-                    
-                    # If we haven't seen this item before, add it
-                    if item_name not in seen_items:
-                        seen_items[item_name] = (meal_period, section)
+
+                    key = (item_name, section)
+
+                    # If we haven't seen this item in this section before, add it directly
+                    if key not in seen_items:
+                        seen_items[key] = meal_period  # store meal period for potential priority logic
                         unique_items.append(item)
                     else:
-                        # If we've seen it before, keep the one with the more specific meal period
-                        prev_meal_period, prev_section = seen_items[item_name]
+                        # If we have same item in same section but different meal periods,
+                        # prefer the one that is not 'All Day'
+                        prev_meal_period = seen_items[key]
                         if prev_meal_period == 'All Day' and meal_period != 'All Day':
-                            # Replace the previous entry with this one
+                            # Replace previous entry with more specific meal period
                             for i, prev_item in enumerate(unique_items):
-                                if prev_item[0] == item_name:
+                                if prev_item[0] == item_name and prev_item[3] == section:
                                     unique_items[i] = item
-                                    seen_items[item_name] = (meal_period, section)
+                                    seen_items[key] = meal_period
                                     break
-                
+
                 all_items_nutrition = unique_items
                 print(f"Successfully extracted {len(all_items_nutrition)} items using meal period approach")
         
@@ -1291,24 +1280,16 @@ def collect_items_and_nutrition(unit_name: str) -> List[Tuple[str, str, str, str
                                     if match:
                                         item_id = match.group(1)
                                 
-                                # Create unique key using item ID if available (ignore meal period for true uniqueness)
-                                if item_id:
-                                    unique_key = f"{item_id}_{unit_name}"
-                                else:
-                                    unique_key = f"{food_name}_{unit_name}_All Day"
+                                # Create unique key that ALWAYS includes section to allow same items in different sections
+                                # Always include section to handle cases where same item ID appears in multiple sections
+                                unique_key = f"{food_name}_{unit_name}_All Day_{current_section}"
                                 
-                                # Check if we've seen this item before
+                                # Check if we've seen this item before - but only skip if it's truly the same item in the same context
                                 if unique_key in processed_names:
-                                    # Check if current section has higher priority than stored section
                                     stored_item = processed_names[unique_key]
-                                    if should_update_section(stored_item['section'], current_section):
-                                        print(f"  Updating section for {food_name}: '{stored_item['section']}' → '{current_section}'")
-                                        # Update the stored item with better section
-                                        for i, item in enumerate(all_items_nutrition):
-                                            if item[0] == food_name and item[1] == unit_name:
-                                                all_items_nutrition[i] = (food_name, unit_name, "All Day", current_section, item[4])
-                                                break
-                                    processed_names[unique_key]['section'] = current_section
+                                    # Since unique_key now includes section, this should only happen if it's truly the same item
+                                    print(f"  Skipping exact duplicate: {food_name} in section '{current_section}' (already processed)")
+                                    continue
                                 else:
                                     # Store item info for future section comparisons
                                     processed_names[unique_key] = {
@@ -1623,8 +1604,20 @@ def store_nutrition_data(items_nutrition: List[Tuple[str, str, str, str, Dict[st
     )
 
     success_count = 0
+    # Track unique combinations to avoid duplicates while allowing same name in different sections
+    seen_items = set()
+    
     for name, restaurant, meal_period, section, nutrition in items_nutrition:
         try:
+            # Create unique key that includes section to allow duplicates across sections
+            unique_key = f"{name}_{restaurant}_{meal_period}_{section}"
+            
+            # Skip if we've seen this exact combination before
+            if unique_key in seen_items:
+                continue
+                
+            seen_items.add(unique_key)
+            
             # Store all entries as single rows, including combined meal periods
             row = [
                 name,
@@ -1650,6 +1643,7 @@ def store_nutrition_data(items_nutrition: List[Tuple[str, str, str, str, Dict[st
             
             if nutrition["calories"] > 0:
                 success_count += 1
+                print(f"✓ Stored {name} ({section}) - {nutrition['calories']} cal")
                 
         except Exception as e:
             print(f"[!] Failed to store {name}: {e}")
