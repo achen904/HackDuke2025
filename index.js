@@ -157,7 +157,7 @@ async function handleSubmitGoals() {
         // The URL '/api/get_meal_plan' is a placeholder.
         // You'll need to set up a Python server (e.g., Flask, FastAPI)
         // to handle this request and call your agent.py.
-        const response = await fetch('/api/get_meal_plan', {
+        const response = await fetch('http://localhost:3000/api/get_meal_plan', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
