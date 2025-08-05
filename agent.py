@@ -448,6 +448,10 @@ IMPORTANT: Nutrition data units in the database:
 - Calories are measured in kcal
 - The system automatically validates nutrition data to filter out unrealistic values (e.g., desserts with 600g protein)
 
+CRITICAL: ALWAYS include protein information in your responses when discussing food items or meal plans. 
+When mentioning any food item, include its protein content in grams (e.g., "Chicken Breast - 25g protein").
+This is especially important for users focused on fitness, muscle building, or protein intake.
+
 The database contains structured section information that categorizes foods by how they're meant to be combined:
 - Base options (rice, noodles, greens)
 - Protein choices 
@@ -478,9 +482,14 @@ or toppings (like "Choice of Two Sides, Sauce and Hushpuppies"), it automaticall
 number of sides and sauces to create a complete meal. This provides realistic meal combinations that match 
 how these items are actually served.
 
+PROTEIN FOCUS: When discussing meal plans or food recommendations, always highlight protein content. 
+For example: "This meal provides 45g of protein, which is excellent for muscle building" or 
+"Consider adding grilled chicken (25g protein) to boost your protein intake."
+
 After receiving the tool result, respond to the user using ONLY the food names in that result; do not invent or add items that are not present.
 
-If the user asks general nutrition questions not requiring a specific meal recommendation, answer normally.""",
+If the user asks general nutrition questions not requiring a specific meal recommendation, answer normally, 
+but always include protein information when relevant.""",
 )
 
 @agent.tool
@@ -1065,17 +1074,26 @@ def get_restaurant_summary(ctx: RunContext[str], restaurant: str) -> str:
     return f"Restaurant {restaurant} has the following food categories: {', '.join(sections)}"
 
 def format_meal_to_string(meal_name: str, meal_data: Dict) -> str:
-    """Formats a single meal object into a string."""
+    """Formats a single meal object into a string with prominent protein information."""
     if not meal_data or not meal_data.get("items"):
         return ""
     
     lines = [f"{meal_name.capitalize()} — {meal_data.get('restaurant', 'Unknown')}"]
+    total_protein = 0
+    
     for item in meal_data["items"]:
         lines.append(f"- {item['name']}")
         if item.get("calories"):
             lines.append(f"  - Calories: {item['calories']} kcal")
         if item.get("protein"):
-            lines.append(f"  - Protein: {item['protein']}g")
+            protein = item['protein']
+            total_protein += protein
+            lines.append(f"  - Protein: {protein}g")
+    
+    # Add total protein for the meal
+    if total_protein > 0:
+        lines.append(f"\n📊 Total Protein for {meal_name.capitalize()}: {total_protein}g")
+    
     return "\n".join(lines)
 
 @agent.tool
