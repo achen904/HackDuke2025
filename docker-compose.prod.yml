@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  duke-eats:
+    # This will be replaced by CI/CD with the actual image
+    image: ghcr.io/achen904/hackduke2025:latest
+    container_name: duke-eats-app
+    ports:
+      - "3000:3000"
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      # Load from .env file
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      # Mount the database for persistence
+      - ./duke_nutrition.db:/app/duke_nutrition.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - duke-eats-network
+
+  # Optional: Add a reverse proxy with nginx for production
+  nginx:
+    image: nginx:alpine
+    container_name: duke-eats-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # For SSL certificates
+    depends_on:
+      - duke-eats
+    restart: unless-stopped
+    networks:
+      - duke-eats-network
+    profiles:
+      - production
+
+networks:
+  duke-eats-network:
+    driver: bridge
