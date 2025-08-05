@@ -102,7 +102,10 @@ function displayUserMessage(message: string) {
         userMessageDiv.className = 'message user-message';
         userMessageDiv.textContent = message;
         messagesContainer.appendChild(userMessageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        // Ensure smooth scrolling to bottom
+        setTimeout(() => {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 10);
     }
 }
 
@@ -117,7 +120,10 @@ function displayBotMessage(message: string, isLoading: boolean = false) {
             botMessageDiv.innerHTML = formatResponse(message);
         }
         messagesContainer.appendChild(botMessageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        // Ensure smooth scrolling to bottom
+        setTimeout(() => {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 10);
     }
 }
 
@@ -127,7 +133,10 @@ function updateLastBotMessage(htmlContent: string) {
         const lastMessage = messagesContainer.querySelector('.bot-message:last-child');
         if (lastMessage) {
             lastMessage.innerHTML = formatResponse(htmlContent);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            // Ensure smooth scrolling to bottom
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, 10);
         }
     }
 }
