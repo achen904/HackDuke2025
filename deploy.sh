@@ -50,21 +50,20 @@ check_env_file() {
         print_warning ".env file not found. Creating template..."
         cat > .env << EOF
 # Duke Eats Environment Variables
-# Add your API keys here
-
-GEMINI_API_KEY=your_gemini_api_key_here
+# For CI/CD, this will be automatically set by GitHub Actions
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_BASE=https://litellm.oit.duke.edu
 
 # Optional: Database configuration
-# DATABASE_URL=sqlite:///duke_nutrition.db
+DATABASE_URL=sqlite:///duke_nutrition.db
 EOF
-        print_warning "Please edit .env file and add your API keys before running the deployment again."
+        print_warning "Please edit .env file and add your API key, or use GitHub Actions for automatic deployment."
         exit 1
     fi
     
-    # Check if API keys are set
-    if grep -q "your_gemini_api_key_here" .env || grep -q "your_openai_api_key_here" .env; then
-        print_warning "Please update the .env file with your actual API keys before deployment."
+    # Check if API key is set (skip check if using GitHub Actions placeholder)
+    if grep -q "your_openai_api_key_here" .env; then
+        print_warning "Please update the .env file with your actual API key, or use GitHub Actions for automatic deployment."
         exit 1
     fi
     

@@ -101,9 +101,19 @@ jobs:
         username: ${{ secrets.VM_USER }}
         key: ${{ secrets.VM_SSH_KEY }}
         port: ${{ secrets.VM_PORT || 22 }}
+        envs: OPENAI_API_KEY
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         script: |
           # Navigate to application directory
           cd ${{ secrets.VM_APP_PATH || '/opt/duke-eats' }}
+          
+          # Create .env file with secrets from GitHub
+          cat > .env << EOF
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          OPENAI_API_BASE=https://litellm.oit.duke.edu
+          DATABASE_URL=sqlite:///duke_nutrition.db
+          EOF
           
           # Login to GitHub Container Registry
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin

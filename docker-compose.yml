@@ -9,9 +9,9 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
-      # Add your API keys here or use a .env file
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Add your API key here or use a .env file
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://litellm.oit.duke.edu}
     volumes:
       # Mount the database for persistence
       - ./duke_nutrition.db:/app/duke_nutrition.db

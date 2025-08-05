@@ -11,8 +11,8 @@ services:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
       # Load from .env file
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_BASE=${OPENAI_API_BASE:-https://litellm.oit.duke.edu}
     volumes:
       # Mount the database for persistence
       - ./duke_nutrition.db:/app/duke_nutrition.db

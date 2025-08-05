@@ -79,13 +79,10 @@ curl -o nginx.conf https://raw.githubusercontent.com/achen904/HackDuke2025/main/
 # Create .env file template
 print_status "Creating environment file template..."
 cat > .env << 'EOF'
-# Duke Eats Environment Variables
-# Replace with your actual API keys
-
-GEMINI_API_KEY=your_actual_gemini_api_key_here
-OPENAI_API_KEY=your_actual_openai_api_key_here
-
-# Optional: Database configuration
+# This file will be automatically updated by GitHub Actions
+# with the API key from GitHub secrets
+OPENAI_API_KEY=will_be_set_by_github_actions
+OPENAI_API_BASE=https://litellm.oit.duke.edu
 DATABASE_URL=sqlite:///duke_nutrition.db
 EOF
 
