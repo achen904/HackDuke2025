@@ -43,26 +43,21 @@ export function renderChatbot(container: HTMLElement, onNewPlan: (plan: any) => 
         if (message) {
             displayUserMessage(message);
             input.value = '';
-            displayBotMessage("Generating...", true); // Show loading indicator
+            displayBotMessage("Thinking...", true); // Show loading indicator
 
             try {
-                // We'll use the user's message as the 'specificGoals' for the API call
-                const userGoals = {
-                    specificGoals: message,
+                // Direct communication with the AI agent
+                const chatRequest = {
+                    message: message,
                     currentPlan: mealPlan, // Include the current plan for context
-                    // Default values for other fields, not used in refinement
-                    dietaryRestrictions: [],
-                    otherDietaryNotes: '',
-                    primaryGoal: 'healthyEating',
-                    mealsConsumed: { breakfast: true, lunch: true, dinner: true, snacks: false },
                 };
 
-                const response = await fetch('http://localhost:3000/api/get_meal_plan', {
+                const response = await fetch('http://localhost:3000/api/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(userGoals),
+                    body: JSON.stringify(chatRequest),
                 });
 
                 if (!response.ok) {
@@ -72,17 +67,17 @@ export function renderChatbot(container: HTMLElement, onNewPlan: (plan: any) => 
 
                 const responseData = await response.json();
                 
-                // Use the raw text for chat display
-                updateLastBotMessage(responseData.rawText);
-
-                // Use the structured meal plan to update the main page
-                onNewPlan(responseData.mealPlan);
+                if (responseData.success && responseData.response) {
+                    updateLastBotMessage(responseData.response);
+                } else {
+                    updateLastBotMessage("I'm sorry, I couldn't process your request. Please try again.");
+                }
 
             } catch (error) {
-                console.error("Error fetching meal plan from backend:", error);
-                let errorMessage = "Sorry, we couldn't generate a meal plan at this time.";
+                console.error("Error communicating with agent:", error);
+                let errorMessage = "Sorry, I'm having trouble connecting to the AI assistant.";
                 if (error instanceof Error) {
-                    errorMessage += ` Details: ${error.message}`;
+                    errorMessage += ` Please try again.`;
                 }
                 updateLastBotMessage(errorMessage);
             }
@@ -107,7 +102,10 @@ function displayUserMessage(message: string) {
         userMessageDiv.className = 'message user-message';
         userMessageDiv.textContent = message;
         messagesContainer.appendChild(userMessageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        // Ensure smooth scrolling to bottom
+        setTimeout(() => {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 10);
     }
 }
 
@@ -122,7 +120,10 @@ function displayBotMessage(message: string, isLoading: boolean = false) {
             botMessageDiv.innerHTML = formatResponse(message);
         }
         messagesContainer.appendChild(botMessageDiv);
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        // Ensure smooth scrolling to bottom
+        setTimeout(() => {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }, 10);
     }
 }
 
@@ -132,7 +133,10 @@ function updateLastBotMessage(htmlContent: string) {
         const lastMessage = messagesContainer.querySelector('.bot-message:last-child');
         if (lastMessage) {
             lastMessage.innerHTML = formatResponse(htmlContent);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            // Ensure smooth scrolling to bottom
+            setTimeout(() => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }, 10);
         }
     }
 }

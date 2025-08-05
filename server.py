@@ -602,6 +602,70 @@ def format_meal_to_string(meal_name: str, meal_data: Dict) -> str:
             lines.append(f"  - Protein: {item['protein']}g")
     return "\n".join(lines)
 
+@app.route('/api/chat', methods=['POST'])
+def chat_with_agent():
+    """
+    Direct communication endpoint with the AI agent for chat interactions.
+    """
+    try:
+        data = request.get_json()
+        user_message = data.get('message', '')
+        current_plan = data.get('currentPlan', None)
+        
+        if not user_message:
+            return jsonify({"error": "No message provided"}), 400
+        
+        logger.info(f"Chat request: {user_message}")
+        
+        # Build a conversational prompt for the agent
+        prompt = f"""
+User message: {user_message}
+
+{f"Current meal plan: {json.dumps(current_plan, indent=2)}" if current_plan else "No current meal plan."}
+
+Please respond to the user's request in a conversational manner. You can:
+1. Answer questions about nutrition
+2. Suggest modifications to the current meal plan
+3. Provide dietary advice
+4. Explain food choices and their nutritional benefits
+5. Help with meal planning strategies
+
+Respond naturally and helpfully.
+"""
+        
+        # Call the agent directly
+        try:
+            agent_response = duke_agent_instance.run_sync(prompt, deps="")
+            
+            # Extract the response text
+            if hasattr(agent_response, 'output'):
+                response_text = str(agent_response.output)
+            elif hasattr(agent_response, 'data'):
+                response_text = str(agent_response.data)
+            else:
+                response_text = str(agent_response)
+            
+            logger.info(f"Agent chat response: {response_text}")
+            
+            return jsonify({
+                "response": response_text,
+                "success": True
+            })
+            
+        except Exception as e:
+            logger.error(f"Error calling agent for chat: {e}")
+            return jsonify({
+                "error": "Failed to get response from agent",
+                "details": str(e)
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}")
+        return jsonify({
+            "error": "Failed to process chat request",
+            "details": str(e)
+        }), 500
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """

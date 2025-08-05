@@ -234,7 +234,18 @@ async function handleSubmitGoals() {
     }
 
     const responseData = await response.json();
-    const parsedPlan = responseData.mealPlan as DailyMealPlan;
+    let parsedPlan: DailyMealPlan;
+
+    try {
+        // The backend returns a JSON object with mealPlan and rawText properties
+        parsedPlan = responseData.mealPlan;
+        if (!parsedPlan) {
+            throw new Error("No meal plan received from backend");
+        }
+    } catch (e) {
+        console.error("Error parsing meal plan from backend:", e);
+        throw new Error("The backend returned an unexpected response. Please try again.");
+    }
 
     // Ensure meals not consumed by user are set to null in the plan
     if (!userGoals.mealsConsumed.breakfast) parsedPlan.breakfast = null;
@@ -291,16 +302,29 @@ function renderMealPlanPage(container: HTMLElement) {
         
         const itemList = document.createElement('ul');
         itemList.setAttribute('aria-label', `${escapeHtml(mealName)} items at ${escapeHtml(mealData.restaurant)}`);
+        let totalProtein = 0;
         mealData.items.forEach(item => {
           const listItem = document.createElement('li');
           let itemText = `<strong>${escapeHtml(item.name)}</strong>`;
           if (item.calories) itemText += ` (~${item.calories} cal`;
-          if (item.protein) itemText += `, ${item.protein}g protein`;
+          if (item.protein) {
+            itemText += `, <span style="color: #007bff; font-weight: bold;">${item.protein}g protein</span>`;
+            totalProtein += item.protein;
+          }
           if (item.calories) itemText += `)`;
           if (item.description) itemText += ` - <small>${escapeHtml(item.description)}</small>`;
           listItem.innerHTML = itemText;
           itemList.appendChild(listItem);
         });
+        
+        // Add total protein summary
+        if (totalProtein > 0) {
+          const proteinSummary = document.createElement('div');
+          proteinSummary.className = 'protein-summary';
+          proteinSummary.innerHTML = `<strong>📊 Total Protein: ${totalProtein}g</strong>`;
+          proteinSummary.style.cssText = 'margin-top: 10px; padding: 8px; background-color: #e3f2fd; border-radius: 4px; text-align: center;';
+          mealCard.appendChild(proteinSummary);
+        }
         mealCard.appendChild(itemList);
         mealDayDiv.appendChild(mealCard);
       } else {
