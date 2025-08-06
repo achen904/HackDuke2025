@@ -141,7 +141,7 @@ jobs:
             cat > docker-compose.override.yml << EOF
           services:
             duke-eats:
-              image: $IMAGE_TAG
+              image: "$IMAGE_TAG"
               environment:
                 - OPENAI_API_KEY=$OPENAI_API_KEY
                 - OPENAI_API_BASE=https://litellm.oit.duke.edu
@@ -183,12 +183,13 @@ jobs:
           # Wait for health check
           sleep 30
           
-          # Verify deployment
-          if curl -f http://localhost:3000/api/health; then
+          # Verify deployment (check through nginx proxy)
+          if curl -f http://localhost/api/health || curl -f http://localhost:3000/api/health; then
             echo "✅ Deployment successful!"
           else
             echo "❌ Deployment failed - health check failed"
-            docker-compose logs
+            echo "Checking container logs..."
+            docker-compose -f docker-compose.prod.yml logs --tail=50
             exit 1
           fi
       env:
