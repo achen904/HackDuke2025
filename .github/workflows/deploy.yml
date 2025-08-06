@@ -107,6 +107,9 @@ jobs:
           # Navigate to application directory
           cd ${{ secrets.VM_APP_PATH || '/opt/duke-eats' }}
           
+          # Pull latest code to get updated docker-compose files
+          git pull origin main || echo "Git pull failed, continuing with existing files"
+          
           # Create .env file with secrets from GitHub
           cat > .env << EOF
           OPENAI_API_KEY=$OPENAI_API_KEY
@@ -119,13 +122,15 @@ jobs:
           
           # Extract the image tag from the build step
           IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
+          # Get just the latest tag (first line)
+          IMAGE_TAG=$(echo "$IMAGE_TAG" | head -n1)
           echo "Pulling image: $IMAGE_TAG"
           
           # Pull the latest image
           docker pull "$IMAGE_TAG"
           
           # Stop existing containers
-          docker-compose -f docker-compose.prod.yml down || true
+          docker-compose -f docker-compose.prod.yml down || docker-compose down || true
           
           # Create a production docker-compose override
           cat > docker-compose.override.yml << EOF
