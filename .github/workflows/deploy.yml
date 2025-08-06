@@ -117,17 +117,25 @@ jobs:
           # Login to Docker Hub
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.io -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
           
+          # Extract the image tag from the build step
+          IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
+          echo "Pulling image: $IMAGE_TAG"
+          
           # Pull the latest image
-          docker pull ${{ needs.build-and-push.outputs.image-tag }}
+          docker pull "$IMAGE_TAG"
           
           # Stop existing containers
-          docker-compose down || true
+          docker-compose -f docker-compose.prod.yml down || true
           
-          # Update docker-compose.yml to use the new image
-          sed -i 's|build: \.|image: ${{ needs.build-and-push.outputs.image-tag }}|g' docker-compose.yml
+          # Create a production docker-compose override
+          cat > docker-compose.override.yml << EOF
+          services:
+            duke-eats:
+              image: $IMAGE_TAG
+          EOF
           
-          # Start the application
-          docker-compose up -d
+          # Start the application with the new image using production config
+          docker-compose -f docker-compose.prod.yml --profile production up -d
           
           # Clean up old images
           docker image prune -f
