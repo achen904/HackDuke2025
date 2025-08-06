@@ -1,2 +1,33 @@
 .env
+.env.local
 node_modules
+dist/
+build/
+
+# SSL certificates and private keys - never commit these!
+ssl/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Logs
+*.log
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

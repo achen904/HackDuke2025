@@ -102,8 +102,6 @@ jobs:
         key: ${{ secrets.VM_SSH_KEY }}
         port: ${{ secrets.VM_PORT || 22 }}
         envs: OPENAI_API_KEY
-      env:
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         script: |
           # Navigate to application directory
           cd ${{ secrets.VM_APP_PATH || '/opt/duke-eats' }}
@@ -144,6 +142,8 @@ jobs:
             docker-compose logs
             exit 1
           fi
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
   notify:
     needs: [test, build-and-push, deploy]

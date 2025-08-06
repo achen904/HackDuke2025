@@ -52,7 +52,7 @@ export function renderChatbot(container: HTMLElement, onNewPlan: (plan: any) => 
                     currentPlan: mealPlan, // Include the current plan for context
                 };
 
-                const response = await fetch('http://localhost:3000/api/chat', {
+                const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
