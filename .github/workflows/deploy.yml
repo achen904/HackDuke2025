@@ -107,40 +107,75 @@ jobs:
           # Navigate to application directory
           cd ${{ secrets.VM_APP_PATH || '/opt/duke-eats' }}
           
-          # Pull latest code to get updated docker-compose files
-          git pull origin main || echo "Git pull failed, continuing with existing files"
-          
-          # Create .env file with secrets from GitHub
-          cat > .env << EOF
-          OPENAI_API_KEY=$OPENAI_API_KEY
-          OPENAI_API_BASE=https://litellm.oit.duke.edu
-          DATABASE_URL=sqlite:///duke_nutrition.db
-          EOF
+          # Initialize git repository if it doesn't exist
+          if [ ! -d ".git" ]; then
+            echo "Initializing git repository..."
+            git init
+            git remote add origin https://github.com/achen904/HackDuke2025.git
+            git fetch origin
+            git checkout -b main
+            git reset --hard origin/main
+          else
+            echo "Git repository exists, pulling latest changes..."
+            git fetch origin
+            git reset --hard origin/main
+          fi
           
           # Login to Docker Hub
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login docker.io -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
           
-          # Extract the image tag from the build step
-          IMAGE_TAG="${{ needs.build-and-push.outputs.image-tag }}"
-          # Get just the latest tag (first line)
-          IMAGE_TAG=$(echo "$IMAGE_TAG" | head -n1)
+          # Set the image tag directly (use latest for simplicity)
+          IMAGE_TAG="ac947/hackduke2025:latest"
           echo "Pulling image: $IMAGE_TAG"
           
           # Pull the latest image
           docker pull "$IMAGE_TAG"
           
           # Stop existing containers
-          docker-compose -f docker-compose.prod.yml down || docker-compose down || true
+          docker-compose down || true
           
-          # Create a production docker-compose override
-          cat > docker-compose.override.yml << EOF
+          # Use docker-compose.prod.yml if it exists, otherwise create a simple one
+          if [ -f "docker-compose.prod.yml" ]; then
+            echo "Using docker-compose.prod.yml from repository"
+            # Create override to use the latest image
+            cat > docker-compose.override.yml << EOF
           services:
             duke-eats:
               image: $IMAGE_TAG
+              environment:
+                - OPENAI_API_KEY=$OPENAI_API_KEY
+                - OPENAI_API_BASE=https://litellm.oit.duke.edu
           EOF
-          
-          # Start the application with the new image using production config
-          docker-compose -f docker-compose.prod.yml --profile production up -d
+            # Start with production config
+            docker-compose -f docker-compose.prod.yml --profile production up -d
+          else
+            echo "Creating standalone docker-compose.yml"
+            # Create or update docker-compose.yml to use the pulled image
+            cat > docker-compose.yml << EOF
+          services:
+            duke-eats:
+              image: $IMAGE_TAG
+              container_name: duke-eats-app
+              ports:
+                - "3000:3000"
+              environment:
+                - FLASK_ENV=production
+                - PYTHONUNBUFFERED=1
+                - OPENAI_API_KEY=$OPENAI_API_KEY
+                - OPENAI_API_BASE=https://litellm.oit.duke.edu
+              volumes:
+                - ./duke_nutrition.db:/app/duke_nutrition.db
+              restart: unless-stopped
+              healthcheck:
+                test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+                interval: 30s
+                timeout: 10s
+                retries: 3
+                start_period: 40s
+          EOF
+            # Start the application
+            docker-compose up -d
+          fi
           
           # Clean up old images
           docker image prune -f
