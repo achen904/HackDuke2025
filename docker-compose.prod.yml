@@ -3,7 +3,7 @@ version: '3.8'
 services:
   duke-eats:
     # This will be replaced by CI/CD with the actual image
-    image: achen904/duke-eats:latest
+    image: ac947/hackduke2025:latest
     container_name: duke-eats-app
     ports:
       - "3000:3000"
