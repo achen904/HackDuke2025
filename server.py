@@ -680,14 +680,19 @@ def serve_index():
     """
     Serve the main HTML file.
     """
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('dist', 'index.html')
 
 @app.route('/<path:filename>')
 def serve_static_files(filename):
     """
     Serve static files (JS, CSS, etc.)
     """
-    return send_from_directory('.', filename)
+    # Try dist directory first, then fall back to current directory
+    try:
+        return send_from_directory('dist', filename)
+    except FileNotFoundError:
+        return send_from_directory('.', filename)
+
 
 if __name__ == '__main__':
     # Run the development server

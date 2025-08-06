@@ -38,6 +38,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the built frontend from the previous stage
 COPY --from=frontend-builder /app/dist ./dist
 
+# Copy frontend files for fallback (in case dist doesn't have everything)
+COPY index.html .
+COPY index.css .
+COPY index.js .
+COPY index.tsx .
+
 # Copy Python backend files
 COPY server.py .
 COPY agent.py .
