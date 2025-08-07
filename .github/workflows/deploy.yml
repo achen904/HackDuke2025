@@ -184,7 +184,7 @@ jobs:
           sleep 30
           
           # Verify deployment (check through nginx proxy)
-          if curl -f http://localhost/api/health || curl -f http://localhost:3000/api/health; then
+          if curl -f https://localhost/api/health || curl -f http://localhost/api/health || curl -f http://localhost:3000/api/health; then
             echo "✅ Deployment successful!"
           else
             echo "❌ Deployment failed - health check failed"
