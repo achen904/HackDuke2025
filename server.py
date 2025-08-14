@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, redirect
 from flask_cors import CORS
 import json
 import logging
@@ -16,6 +16,19 @@ CORS(app)
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# Force HTTPS redirect for production
+@app.before_request
+def force_https():
+    if not request.is_secure and app.env != 'development':
+        # Only redirect if not localhost and not behind reverse proxy
+        if request.headers.get('X-Forwarded-Proto') != 'https' and \
+           request.host not in ['localhost', '127.0.0.1', '0.0.0.0'] and \
+           not request.host.startswith('localhost:'):
+            url = request.url.replace('http://', 'https://')
+            return redirect(url, code=301)
+
 
 def parse_agent_response(agent_response: str) -> Dict[str, Any]:
     """
@@ -692,6 +705,21 @@ def serve_static_files(filename):
         return send_from_directory('dist', filename)
     except FileNotFoundError:
         return send_from_directory('.', filename)
+
+
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    # Force HTTPS
+    hsts = 'max-age=63072000; includeSubDomains; preload'
+    response.headers['Strict-Transport-Security'] = hsts
+    # Prevent mixed content issues
+    response.headers['Content-Security-Policy'] = 'upgrade-insecure-requests'
+    # Additional security headers
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    return response
 
 
 if __name__ == '__main__':

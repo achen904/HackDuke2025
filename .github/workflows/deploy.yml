@@ -131,6 +131,10 @@ jobs:
           # Pull the latest image
           docker pull "$IMAGE_TAG"
           
+          # Setup SSL certificates automatically
+          chmod +x setup-ssl.sh
+          ./setup-ssl.sh
+          
           # Stop existing containers
           docker-compose down || true
           
@@ -184,12 +188,28 @@ jobs:
           sleep 30
           
           # Verify deployment (check through nginx proxy)
-          if curl -f https://localhost/api/health || curl -f http://localhost/api/health || curl -f http://localhost:3000/api/health; then
+          echo "Testing health endpoints..."
+          
+          # Test direct app connection first (most reliable)
+          if curl -f --max-time 10 http://localhost:3000/api/health; then
+            echo "✅ Direct app health check passed!"
+            echo "✅ Deployment successful!"
+          # Test HTTP through nginx
+          elif curl -f --max-time 10 http://localhost/api/health; then
+            echo "✅ HTTP nginx health check passed!"
+            echo "✅ Deployment successful!"
+          # Test HTTPS with SSL verification disabled for self-signed certs
+          elif curl -f --max-time 10 -k https://localhost/api/health; then
+            echo "✅ HTTPS nginx health check passed (self-signed cert)!"
             echo "✅ Deployment successful!"
           else
-            echo "❌ Deployment failed - health check failed"
+            echo "❌ All health checks failed"
+            echo "Checking container status..."
+            docker ps
             echo "Checking container logs..."
-            docker-compose -f docker-compose.prod.yml logs --tail=50
+            docker-compose -f docker-compose.prod.yml logs --tail=50 || docker logs duke-eats-app || true
+            echo "Checking nginx logs..."
+            docker logs duke-eats-nginx || true
             exit 1
           fi
       env:
