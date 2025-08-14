@@ -18,13 +18,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# Force HTTPS redirect for production
+# Force HTTPS redirect for production (disabled when behind reverse proxy)
 @app.before_request
 def force_https():
-    if not request.is_secure and app.env != 'development':
+    # Skip HTTPS redirect when behind nginx reverse proxy
+    # The reverse proxy (nginx) handles SSL termination
+    if request.headers.get('X-Forwarded-Proto'):
+        return None
+    
+    # Check if we're in production (not development)
+    flask_env = os.environ.get('FLASK_ENV', 'production')
+    if not request.is_secure and flask_env != 'development':
         # Only redirect if not localhost and not behind reverse proxy
-        if request.headers.get('X-Forwarded-Proto') != 'https' and \
-           request.host not in ['localhost', '127.0.0.1', '0.0.0.0'] and \
+        if request.host not in ['localhost', '127.0.0.1', '0.0.0.0'] and \
            not request.host.startswith('localhost:'):
             url = request.url.replace('http://', 'https://')
             return redirect(url, code=301)
