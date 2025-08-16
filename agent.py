@@ -422,8 +422,7 @@ def validate_nutrition_data(item_data) -> bool:
     
     return True
 
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from config import OPENAI_API_BASE, OPENAI_API_KEY
 openai.api_key = OPENAI_API_KEY
 
 # If a custom OpenAI base URL is provided, configure the client to use it

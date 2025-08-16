@@ -58,7 +58,7 @@ function renderApp() {
   if (!root) return;
   root.innerHTML = ''; // Clear previous content
 
-  chatbotInterface = renderChatbot(chatbotContainer, (newPlan) => {
+  renderChatbot(chatbotContainer, (newPlan) => {
     mealPlan = newPlan;
     currentPage = 'mealPlan'; // Ensure the meal plan page is shown
     renderApp(); // Re-render the whole app with the new plan
@@ -92,6 +92,12 @@ function renderApp() {
     </svg>
     <h1>Duke Eats</h1>`;
   root.appendChild(headerDiv);
+  
+  // Add subtitle after the header
+  const subtitle = document.createElement('p');
+  subtitle.style.cssText = 'margin-top: 20px; font-size: 1.2rem; opacity: 0.9; font-weight: 300; text-align: center; color: white; position: absolute; top: 50%; left: 50%; transform: translate(-50%, 60px); width: 100%;';
+  subtitle.textContent = 'Personalized Meal Planning for Duke Students';
+  headerDiv.appendChild(subtitle);
 
   const pageContentDiv = document.createElement('div');
   pageContentDiv.className = 'page-content';
@@ -99,20 +105,26 @@ function renderApp() {
 
 
   if (isLoading) {
-    pageContentDiv.innerHTML = `<div class="loading" role="status" aria-live="polite">
-                                <p>Generating your meal plan...</p>
-                                <svg width="50" height="50" viewBox="0 0 50 50" style="margin:auto;display:block;">
-                                  <circle cx="25" cy="25" r="20" fill="none" stroke="#012169" stroke-width="4" stroke-dasharray="31.415, 31.415" transform="rotate(90 25 25)">
-                                    <animateTransform attributeName="transform" type="rotate" repeatCount="indefinite" dur="1s" values="0 25 25;360 25 25" keyTimes="0;1"></animateTransform>
-                                  </circle>
-                                </svg>
+    pageContentDiv.innerHTML = `<div class="loading bounce-in" role="status" aria-live="polite">
+                                <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: #667eea; margin-bottom: 20px; display: block;"></i>
+                                <h3 style="color: var(--duke-blue); margin-bottom: 15px;">Generating your meal plan...</h3>
+                                <p style="color: var(--text-secondary); font-size: 1.1rem;">Our AI is analyzing your preferences and finding the perfect meals for you.</p>
+                                <div style="margin-top: 30px;">
+                                  <div style="display: inline-block; width: 8px; height: 8px; background: #667eea; border-radius: 50%; margin: 0 4px; animation: bounce 1.4s ease-in-out infinite both;"></div>
+                                  <div style="display: inline-block; width: 8px; height: 8px; background: #764ba2; border-radius: 50%; margin: 0 4px; animation: bounce 1.4s ease-in-out infinite both; animation-delay: 0.16s;"></div>
+                                  <div style="display: inline-block; width: 8px; height: 8px; background: #f093fb; border-radius: 50%; margin: 0 4px; animation: bounce 1.4s ease-in-out infinite both; animation-delay: 0.32s;"></div>
+                                </div>
                               </div>`;
     return;
   }
 
   if (errorMessage) {
-    pageContentDiv.innerHTML = `<div class="error-message" role="alert">${escapeHtml(errorMessage)}</div>`;
-     const backButton = createButton('Try Again', () => {
+    pageContentDiv.innerHTML = `<div class="error-message bounce-in" role="alert">
+                                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; margin-bottom: 15px; display: block;"></i>
+                                <h3 style="margin-bottom: 15px;">Oops! Something went wrong</h3>
+                                <p>${escapeHtml(errorMessage)}</p>
+                              </div>`;
+     const backButton = createButton('<i class="fas fa-redo"></i> Try Again', () => {
       errorMessage = ''; 
       currentPage = 'goalInput'; 
       renderApp();
@@ -136,24 +148,56 @@ function renderApp() {
 
 function renderHomePage(container: HTMLElement) {
   const pageDiv = document.createElement('div');
-  pageDiv.className = 'page text-center';
+  pageDiv.className = 'page text-center fade-in';
   pageDiv.innerHTML = `
-    <h2>Welcome to Duke Eats!</h2>
-    <p>Your personalized meal planner for dining on campus.</p>
-    <p>Tell us your goals, and we'll help you find the best meals at Duke's dining locations using your local dining database.</p>
+    <div style="margin-bottom: 40px;">
+      <i class="fas fa-utensils" style="font-size: 4rem; color: #667eea; margin-bottom: 20px; display: block;"></i>
+      <h2 style="font-size: 2.5rem; margin-bottom: 20px; background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Welcome to Duke Eats!</h2>
+      <p style="font-size: 1.2rem; color: var(--text-secondary); margin-bottom: 15px;">Your personalized meal planner for dining on campus.</p>
+      <p style="font-size: 1.1rem; color: var(--text-secondary);">Tell us your goals, and we'll help you find the best meals at Duke's dining locations using your local dining database.</p>
+    </div>
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 40px;">
+      <div style="background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1)); padding: 24px; border-radius: 16px; border: 1px solid rgba(102, 126, 234, 0.2);">
+        <i class="fas fa-heart" style="font-size: 2rem; color: #f5576c; margin-bottom: 16px; display: block;"></i>
+        <h3 style="color: var(--duke-blue); margin-bottom: 12px;">Personalized Plans</h3>
+        <p style="color: var(--text-secondary);">Get meal recommendations tailored to your dietary needs and health goals.</p>
+      </div>
+      
+      <div style="background: linear-gradient(135deg, rgba(79, 172, 254, 0.1), rgba(0, 242, 254, 0.1)); padding: 24px; border-radius: 16px; border: 1px solid rgba(79, 172, 254, 0.2);">
+        <i class="fas fa-database" style="font-size: 2rem; color: #4facfe; margin-bottom: 16px; display: block;"></i>
+        <h3 style="color: var(--duke-blue); margin-bottom: 12px;">Local Database</h3>
+        <p style="color: var(--text-secondary);">Access real-time information about Duke's dining locations and menu items.</p>
+      </div>
+      
+      <div style="background: linear-gradient(135deg, rgba(240, 147, 251, 0.1), rgba(245, 87, 108, 0.1)); padding: 24px; border-radius: 16px; border: 1px solid rgba(240, 147, 251, 0.2);">
+        <i class="fas fa-robot" style="font-size: 2rem; color: #f093fb; margin-bottom: 16px; display: block;"></i>
+        <h3 style="color: var(--duke-blue); margin-bottom: 12px;">AI Assistant</h3>
+        <p style="color: var(--text-secondary);">Chat with our intelligent bot to customize and refine your meal plans.</p>
+      </div>
+    </div>
   `;
-  const startButton = createButton('Get Started', () => {
+  
+  const startButton = createButton('<i class="fas fa-rocket"></i> Get Started', () => {
     currentPage = 'goalInput';
     renderApp();
   });
+  startButton.style.fontSize = '1.1rem';
+  startButton.style.padding = '18px 36px';
   pageDiv.appendChild(startButton);
   container.appendChild(pageDiv);
 }
 
 function renderGoalInputPage(container: HTMLElement) {
   const pageDiv = document.createElement('div');
-  pageDiv.className = 'page';
-  pageDiv.innerHTML = `<h2>Tell Us About Yourself</h2>`;
+  pageDiv.className = 'page slide-in-left';
+  pageDiv.innerHTML = `
+    <div style="text-align: center; margin-bottom: 40px;">
+      <i class="fas fa-user-edit" style="font-size: 3rem; color: #667eea; margin-bottom: 20px; display: block;"></i>
+      <h2 style="font-size: 2.2rem; margin-bottom: 15px; background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Tell Us About Yourself</h2>
+      <p style="font-size: 1.1rem; color: var(--text-secondary);">Help us create the perfect meal plan for your needs and preferences.</p>
+    </div>
+  `;
 
   const form = document.createElement('form');
   form.id = 'goalForm';
@@ -200,8 +244,10 @@ function renderGoalInputPage(container: HTMLElement) {
   mealsConsumedGroup.appendChild(createCheckbox('Snacks', 'mealsConsumed.snacks', userGoals.mealsConsumed.snacks, (checked) => userGoals.mealsConsumed.snacks = checked));
   form.appendChild(mealsConsumedGroup);
 
-  const submitButton = createButton('Generate My Plan', handleSubmitGoals);
+  const submitButton = createButton('<i class="fas fa-magic"></i> Generate My Plan', handleSubmitGoals);
   submitButton.type = 'submit';
+  submitButton.style.fontSize = '1.1rem';
+  submitButton.style.padding = '18px 36px';
   form.appendChild(submitButton);
 
   form.addEventListener('submit', (e) => {
@@ -220,7 +266,7 @@ async function handleSubmitGoals() {
   renderApp(); // Show loading state
 
   try {
-    const response = await fetch('http://localhost:3000/api/get_meal_plan', {
+            const response = await fetch('http://localhost:3000/api/get_meal_plan', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -273,20 +319,27 @@ async function handleSubmitGoals() {
 function renderMealPlanPage(container: HTMLElement) {
   const pageDiv = document.createElement('div');
   pageDiv.className = 'page';
-  pageDiv.innerHTML = `<h2>${mealPlan?.dayName || "Your Meal Plan"}</h2>`;
-
+  
   if (!mealPlan) {
-    pageDiv.innerHTML += `<p>No meal plan available.</p>`;
+    pageDiv.innerHTML = `<h2>Your Meal Plan</h2><p>No meal plan available.</p>`;
     container.appendChild(pageDiv);
     return;
   }
+  
+  pageDiv.innerHTML = `
+    <div style="text-align: center; margin-bottom: 40px;">
+      <i class="fas fa-clipboard-list" style="font-size: 3rem; color: #667eea; margin-bottom: 20px; display: block;"></i>
+      <h2 style="font-size: 2.2rem; margin-bottom: 15px; background: var(--primary-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">${mealPlan.dayName || "Your Meal Plan"}</h2>
+      <p style="font-size: 1.1rem; color: var(--text-secondary);">Here's your personalized meal plan based on your preferences and goals.</p>
+    </div>
+  `;
 
   const mealsToShow: (keyof DailyMealPlan)[] = ['breakfast', 'lunch', 'dinner', 'snacks'];
   let planIsEmpty = true;
 
   mealsToShow.forEach(mealKey => {
     if (userGoals.mealsConsumed[mealKey as keyof UserGoals['mealsConsumed']]) {
-      const mealData = mealPlan[mealKey] as Meal | null;
+      const mealData = (mealPlan as DailyMealPlan)[mealKey] as Meal | null;
       const mealName = mealKey.charAt(0).toUpperCase() + mealKey.slice(1);
       
       const mealDayDiv = document.createElement('div');
@@ -338,13 +391,13 @@ function renderMealPlanPage(container: HTMLElement) {
      pageDiv.innerHTML += `<p>We couldn't find any specific recommendations matching all your criteria for the selected meals. You might want to broaden your preferences or try again.</p>`;
   }
 
-  const adjustButton = createButton('Adjust Goals', () => {
+  const adjustButton = createButton('<i class="fas fa-edit"></i> Adjust Goals', () => {
     currentPage = 'goalInput';
     renderApp();
   }, ['button-secondary']);
   pageDiv.appendChild(adjustButton);
   
-  const newPlanButton = createButton('Get Another Plan', () => {
+  const newPlanButton = createButton('<i class="fas fa-sync-alt"></i> Get Another Plan', () => {
     handleSubmitGoals(); 
   });
   newPlanButton.style.marginLeft = '10px';

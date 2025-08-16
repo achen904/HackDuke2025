@@ -7,7 +7,8 @@ import re
 from typing import Dict, Any, List, Optional
 import traceback
 
-# Import the agent from agent.py
+# Import configuration and agent
+from config import BACKEND_HOST, BACKEND_PORT, IS_PRODUCTION
 from agent import agent as duke_agent_instance
 
 app = Flask(__name__, static_folder='.')
@@ -690,5 +691,6 @@ def serve_static_files(filename):
     return send_from_directory('.', filename)
 
 if __name__ == '__main__':
-    # Run the development server
-    app.run(debug=True, host='0.0.0.0', port=3000)
+    # Run the server with configuration
+    debug_mode = not IS_PRODUCTION
+    app.run(debug=debug_mode, host=BACKEND_HOST, port=BACKEND_PORT)
