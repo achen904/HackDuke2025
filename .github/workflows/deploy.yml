@@ -139,6 +139,10 @@ jobs:
           chmod +x setup-ssl.sh
           ./setup-ssl.sh
           
+          # Backup original nginx config and use debug version temporarily
+          cp nginx.conf nginx.conf.backup
+          cp nginx-debug.conf nginx.conf
+          
           # Stop existing containers
           docker-compose down || true
           
@@ -194,6 +198,31 @@ jobs:
           # Verify deployment (check through nginx proxy)
           echo "Testing health endpoints..."
           
+          # First, check if containers are actually running
+          echo "=== Container Status ==="
+          docker ps
+          echo ""
+          
+          # Check nginx container specifically
+          echo "=== Nginx Container Logs ==="
+          docker logs duke-eats-nginx --tail=20 || echo "Nginx container not found"
+          echo ""
+          
+          # Check duke-eats app container
+          echo "=== Duke Eats App Container Logs ==="
+          docker logs duke-eats-app --tail=20 || echo "Duke eats app container not found"
+          echo ""
+          
+          # Test port connectivity
+          echo "=== Port Connectivity Tests ==="
+          echo "Testing port 80:"
+          nc -zv localhost 80 || echo "Port 80 not accessible"
+          echo "Testing port 443:"
+          nc -zv localhost 443 || echo "Port 443 not accessible"
+          echo "Testing port 3000:"
+          nc -zv localhost 3000 || echo "Port 3000 not accessible"
+          echo ""
+          
           # Test direct app connection first (most reliable)
           if curl -f --max-time 10 http://localhost:3000/api/health; then
             echo "✅ Direct app health check passed!"
@@ -214,6 +243,16 @@ jobs:
             docker-compose -f docker-compose.prod.yml logs --tail=50 || docker logs duke-eats-app || true
             echo "Checking nginx logs..."
             docker logs duke-eats-nginx || true
+            
+            # Additional debugging
+            echo "=== Network Inspection ==="
+            docker network ls
+            docker network inspect duke-eats_duke-eats-network || echo "Network not found"
+            
+            echo "=== Process Inspection ==="
+            ps aux | grep nginx || echo "No nginx processes found"
+            ss -tlnp | grep -E ":(80|443|3000)" || echo "No listening processes on ports 80, 443, or 3000"
+            
             exit 1
           fi
       env:
