@@ -1,3 +1,4 @@
+# Deploy Duke Eats Application to Production VM
 name: Deploy Duke Eats to VM
 
 on:
@@ -14,6 +15,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
     - uses: actions/checkout@v4
 
@@ -46,6 +48,7 @@ jobs:
   build-and-push:
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     if: github.ref == 'refs/heads/main'
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
@@ -92,6 +95,7 @@ jobs:
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
     
     steps:
@@ -218,6 +222,7 @@ jobs:
   notify:
     needs: [test, build-and-push, deploy]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     
     steps:
