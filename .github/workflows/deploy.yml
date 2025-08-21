@@ -143,8 +143,12 @@ jobs:
           cp nginx.conf nginx.conf.backup
           cp nginx-debug.conf nginx.conf
           
-          # Stop existing containers
+          # Stop existing containers to ensure clean restart with new config
           docker-compose down || true
+          
+          # Also stop any lingering nginx containers
+          docker stop duke-eats-nginx 2>/dev/null || true
+          docker rm duke-eats-nginx 2>/dev/null || true
           
           # Use docker-compose.prod.yml if it exists, otherwise create a simple one
           if [ -f "docker-compose.prod.yml" ]; then
@@ -160,6 +164,26 @@ jobs:
           EOF
             # Start with production config
             docker-compose -f docker-compose.prod.yml --profile production up -d
+            
+            # Immediate post-startup diagnostics
+            echo "=== Immediate Container Status ==="
+            docker ps
+            echo ""
+            
+            echo "=== Port Binding Check ==="
+            docker port duke-eats-nginx || echo "Nginx port binding failed"
+            docker port duke-eats-app || echo "App port binding failed"
+            echo ""
+            
+            echo "=== Nginx Configuration Test ==="
+            docker exec duke-eats-nginx nginx -t || echo "Nginx config test failed"
+            echo ""
+            
+            # Restart nginx to ensure it picks up the configuration
+            echo "=== Restarting Nginx ==="
+            docker restart duke-eats-nginx
+            sleep 5
+            echo "Nginx restarted"
           else
             echo "Creating standalone docker-compose.yml"
             # Create or update docker-compose.yml to use the pulled image
@@ -187,6 +211,15 @@ jobs:
           EOF
             # Start the application
             docker-compose up -d
+            
+            # Immediate post-startup diagnostics
+            echo "=== Immediate Container Status ==="
+            docker ps
+            echo ""
+            
+            echo "=== Port Binding Check ==="
+            ss -tlnp | grep -E ":(80|443|3000)" || echo "No ports bound"
+            echo ""
           fi
           
           # Clean up old images
@@ -226,7 +259,21 @@ jobs:
           # Test direct app connection first (most reliable)
           if curl -f --max-time 10 http://localhost:3000/api/health; then
             echo "✅ Direct app health check passed!"
-            echo "✅ Deployment successful!"
+            
+            # Now test external accessibility
+            echo "Testing external HTTP access..."
+            if curl -f --max-time 10 http://localhost/api/health; then
+              echo "✅ HTTP nginx health check passed!"
+              echo "✅ Deployment successful!"
+            elif curl -f --max-time 10 -k https://localhost/api/health; then
+              echo "✅ HTTPS nginx health check passed!"
+              echo "✅ Deployment successful!"
+            else
+              echo "⚠️  App is healthy but nginx proxy has issues"
+              echo "Testing simple nginx response..."
+              curl -v http://localhost/ || echo "No response from nginx"
+              echo "✅ Deployment partially successful (app running, nginx issues)"
+            fi
           # Test HTTP through nginx
           elif curl -f --max-time 10 http://localhost/api/health; then
             echo "✅ HTTP nginx health check passed!"
