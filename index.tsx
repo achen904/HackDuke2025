@@ -90,7 +90,7 @@ function renderApp() {
         <path class="st0" d="M8.2,30.3c-0.1,0.2-0.1,0.5-0.1,0.9s0,0.8,0,1.3c0,1.4,0.1,2.7,0.3,3.9c0.2,1.3,0.7,2.4,1.3,3.4 c0.7,1,1.6,1.8,2.8,2.4c1.2,0.6,2.8,0.9,4.7,0.9c1.2,0,2.2-0.1,2.8-0.4c0.7-0.3,1.2-0.5,1.6-0.9c0.4-0.3,0.7-0.6,0.9-0.9 c0.2-0.3,0.4-0.4,0.7-0.4c0.4,0,0.6,0.2,0.6,0.5c0,0.1-0.2,0.5-0.5,1s-0.9,1.1-1.6,1.7c-0.8,0.6-1.7,1.2-2.9,1.7 c-1.2,0.5-2.6,0.7-4.2,0.7c-3.5,0-6.2-1.1-8-3.4c-1.9-2.3-2.9-5.4-2.9-9.3c0-1.5,0.2-3,0.7-4.6s1.2-3,2.1-4.3s2.1-2.3,3.6-3.2 c1.4-0.8,3.1-1.3,5.1-1.3c1.8,0,3.3,0.3,4.6,1c1.2,0.7,2.2,1.5,3,2.4s1.3,1.9,1.6,2.9s0.5,1.9,0.5,2.5s-0.1,1-0.2,1.2 s-0.5,0.3-1,0.3L8.2,30.3 M14.3,28.4c1.4,0,2.5-0.1,3.3-0.2s1.5-0.3,2-0.5c0.5-0.3,0.8-0.6,0.9-0.9c0.1-0.4,0.2-0.9,0.2-1.5 c0-1.1-0.4-2-1.3-2.7s-2-1.1-3.3-1.1c-1.1,0-2.2,0.2-3.1,0.7s-1.7,1.1-2.3,1.7c-0.6,0.7-1.1,1.4-1.4,2.1s-0.5,1.3-0.5,1.8 c0,0.1,0,0.2,0.1,0.3c0.1,0.1,0.3,0.1,0.6,0.2c0.4,0,0.9,0.1,1.6,0.1C11.9,28.4,12.9,28.4,14.3,28.4z"/>
       </g>
     </svg>
-    <h1>Duke Eats</h1>`;
+    <h1>Duke Blue Devil Eats</h1>`;
   root.appendChild(headerDiv);
 
   const pageContentDiv = document.createElement('div');
@@ -138,9 +138,23 @@ function renderHomePage(container: HTMLElement) {
   const pageDiv = document.createElement('div');
   pageDiv.className = 'page text-center';
   pageDiv.innerHTML = `
-    <h2>Welcome to Duke Eats!</h2>
+    <h2>Welcome to Duke Blue Devil Eats!</h2>
     <p>Your personalized meal planner for dining on campus.</p>
     <p>Tell us your goals, and we'll help you find the best meals at Duke's dining locations using your local dining database.</p>
+    <div class="about">
+      <h3>About</h3>
+      <p>Created by Owen Chen and Andy Chen.</p>
+      <div class="about-cards">
+        <div class="creator-card">
+          <div class="avatar">OC</div>
+          <div><strong>Owen Chen</strong><div>Co-creator</div></div>
+        </div>
+        <div class="creator-card">
+          <div class="avatar">AC</div>
+          <div><strong>Andy Chen</strong><div>Co-creator</div></div>
+        </div>
+      </div>
+    </div>
   `;
   const startButton = createButton('Get Started', () => {
     currentPage = 'goalInput';

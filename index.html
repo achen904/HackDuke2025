@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Duke Eats - Personalized Meal Planner</title>
+    <title>Duke Blue Devil Eats - Personalized Meal Planner</title>
     <link rel="stylesheet" href="/index.css">
     
     <!-- Force HTTPS redirect at the client level -->
@@ -167,6 +167,110 @@
                 font-size: 0.95em;
             }
         }
+
+        /* --- Enhanced theme overrides and additions --- */
+        body {
+            color: #222;
+            background: radial-gradient(1200px 600px at 120% -20%, rgba(1,33,105,0.20), rgba(1,33,105,0)) no-repeat,
+                        radial-gradient(800px 500px at -20% 120%, rgba(0,51,160,0.18), rgba(0,51,160,0)) no-repeat,
+                        linear-gradient(180deg, #f6f9ff 0%, #eef3ff 100%);
+            background-attachment: fixed;
+        }
+        .header {
+            position: relative;
+            padding: 26px 22px;
+            margin-bottom: 24px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #012169 0%, #0033a0 55%, #2463eb 100%);
+            box-shadow: 0 10px 30px rgba(1,33,105,0.35), inset 0 1px 0 rgba(255,255,255,0.15);
+            overflow: hidden;
+        }
+        .header:after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(400px 120px at 50% -40%, rgba(255,255,255,0.35), rgba(255,255,255,0));
+            pointer-events: none;
+        }
+        .header h1 {
+            font-size: 2.1em;
+            font-weight: 700;
+            letter-spacing: 0.2px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.25);
+        }
+        .page-content { margin-bottom: 28px; }
+        .page {
+            background: rgba(255,255,255,0.7);
+            padding: 22px;
+            border-radius: 14px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.08);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.55);
+        }
+        .button {
+            background: linear-gradient(135deg, #012169 0%, #0033a0 100%);
+            color: #fff;
+            border-radius: 999px;
+            transition: transform 0.15s ease, box-shadow 0.3s ease;
+            box-shadow: 0 8px 20px rgba(1,33,105,0.25);
+        }
+        .button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 28px rgba(1,33,105,0.35);
+        }
+        .button-secondary {
+            background: #e6eaf3;
+            color: #1f2937;
+        }
+        .button-secondary:hover {
+            box-shadow: 0 8px 20px rgba(31,41,55,0.15);
+        }
+        .meal-card {
+            background-color: rgba(249,249,249,0.85);
+            border: 1px solid rgba(224,224,224,0.8);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            backdrop-filter: blur(6px);
+        }
+
+        /* About section */
+        .about { margin-top: 28px; }
+        .about h3 { margin: 0 0 8px 0; color: #012169; }
+        .about p { margin: 0 0 16px 0; color: #334155; }
+        .about-cards {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+        .creator-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.7);
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 8px 18px rgba(0,0,0,0.06);
+            backdrop-filter: blur(6px);
+        }
+        .avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, #0033a0, #2563eb);
+            color: #fff;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            box-shadow: 0 6px 16px rgba(0,51,160,0.35);
+        }
+
+        /* Subtle entry animation */
+        @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .page, .meal-card, .button { animation: fadeSlideIn 380ms ease 1; }
     </style>
 </head>
 <body>

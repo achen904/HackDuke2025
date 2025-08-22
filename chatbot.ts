@@ -30,6 +30,15 @@ export function renderChatbot(container: HTMLElement, onNewPlan: (plan: any) => 
     if (header) {
         header.addEventListener('click', toggleChatbot);
     }
+    // Also allow clicking the outer container to expand when collapsed
+    if (chatbotContainer) {
+        chatbotContainer.addEventListener('click', (e) => {
+            if (chatbotContainer.classList.contains('collapsed')) {
+                e.stopPropagation();
+                toggleChatbot();
+            }
+        });
+    }
     
     // Start collapsed
     if (chatbotContainer && !chatbotContainer.classList.contains('collapsed')) {
