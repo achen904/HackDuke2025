@@ -65,6 +65,8 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
                         "name": current_food_item,
                         "calories": current_nutrition.get('calories'),
                         "protein": current_nutrition.get('protein'),
+                        "carbs": current_nutrition.get('carbs'),
+                        "fat": current_nutrition.get('fat'),
                         "restaurant": current_restaurant,
                         "description": f"From {current_restaurant}"
                     }
@@ -151,6 +153,26 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
                         if protein_match:
                             current_nutrition['protein'] = float(protein_match.group(1))
                     
+                    elif nutrition_line.lower().startswith('carb'):
+                        carbs_match = re.search(r'carb(?:s|ohydrates)?:\s*(\d+(?:\.\d+)?)', nutrition_line, re.IGNORECASE)
+                        if carbs_match:
+                            current_nutrition['carbs'] = float(carbs_match.group(1))
+                    
+                    elif nutrition_line.lower().startswith('fat:') or nutrition_line.lower().startswith('total fat:'):
+                        fat_match = re.search(r'fat:\s*(\d+(?:\.\d+)?)', nutrition_line, re.IGNORECASE)
+                        if fat_match:
+                            current_nutrition['fat'] = float(fat_match.group(1))
+                    
+                    elif nutrition_line.lower().startswith('carb'):
+                        carbs_match = re.search(r'carb(?:s|ohydrates)?:\s*(\d+(?:\.\d+)?)', nutrition_line, re.IGNORECASE)
+                        if carbs_match:
+                            current_nutrition['carbs'] = float(carbs_match.group(1))
+                    
+                    elif nutrition_line.lower().startswith('fat:') or nutrition_line.lower().startswith('total fat:'):
+                        fat_match = re.search(r'fat:\s*(\d+(?:\.\d+)?)', nutrition_line, re.IGNORECASE)
+                        if fat_match:
+                            current_nutrition['fat'] = float(fat_match.group(1))
+                    
                     j += 1
                 
                 # Set i to continue from after the nutrition lines
@@ -165,6 +187,8 @@ def parse_agent_response(agent_response: str) -> Dict[str, Any]:
                 "name": current_food_item,
                 "calories": current_nutrition.get('calories'),
                 "protein": current_nutrition.get('protein'),
+                "carbs": current_nutrition.get('carbs'),
+                "fat": current_nutrition.get('fat'),
                 "restaurant": current_restaurant,
                 "description": f"From {current_restaurant}"
             }
@@ -480,23 +504,29 @@ IMPORTANT OUTPUT FORMAT REQUIREMENTS:
 2. List each food item with "- Food Name"
 3. Include nutrition details on indented lines under each food item
 4. Always include restaurant information for every meal
-5. Include at least calories and protein for each food item
+5. Include at least calories, protein, carbs, and fat for each food item (if available)
 6. Use this exact format:
 
 Breakfast — Restaurant Name
 - Food Item Name
   - Calories: XXX kcal
   - Protein: XXg
+  - Carbs: XXg
+  - Fat: XXg
 
 Lunch — Restaurant Name  
 - Food Item Name
   - Calories: XXX kcal
   - Protein: XXg
+  - Carbs: XXg
+  - Fat: XXg
 
 Dinner — Restaurant Name
 - Food Item Name
   - Calories: XXX kcal
   - Protein: XXg
+  - Carbs: XXg
+  - Fat: XXg
 
 7. Ensure every meal has a restaurant name specified
 8. Do not include summary sections or alternative suggestions"""
@@ -600,6 +630,10 @@ def format_meal_to_string(meal_name: str, meal_data: Dict) -> str:
             lines.append(f"  - Calories: {item['calories']} kcal")
         if item.get("protein"):
             lines.append(f"  - Protein: {item['protein']}g")
+        if item.get("carbs"):
+            lines.append(f"  - Carbs: {item['carbs']}g")
+        if item.get("fat"):
+            lines.append(f"  - Fat: {item['fat']}g")
     return "\n".join(lines)
 
 @app.route('/api/chat', methods=['POST'])

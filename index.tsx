@@ -19,6 +19,8 @@ interface MealItem {
   calories?: number;
   protein?: number;
   description?: string;
+  carbs?: number;
+  fat?: number;
 }
 
 interface Meal {
@@ -323,7 +325,12 @@ function renderMealPlanPage(container: HTMLElement) {
           if (item.calories) itemText += ` (~${item.calories} cal`;
           if (item.protein) {
             itemText += `, <span style="color: #007bff; font-weight: bold;">${item.protein}g protein</span>`;
-            totalProtein += item.protein;
+          }
+          if (item.carbs) {
+            itemText += `, <span style="color: #0ea5e9;">${item.carbs}g carbs</span>`;
+          }
+          if (item.fat) {
+            itemText += `, <span style="color: #f59e0b;">${item.fat}g fat</span>`;
           }
           if (item.calories) itemText += `)`;
           if (item.description) itemText += ` - <small>${escapeHtml(item.description)}</small>`;

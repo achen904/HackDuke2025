@@ -264,12 +264,16 @@ function renderMealPlanPage(container) {
                     }
                     
                     // Add nutrition info
-                    if (item.calories || item.protein) {
+                    if (item.calories || item.protein || item.carbs || item.fat) {
                         itemText += ` -`;
                         if (item.calories)
                             itemText += ` ~${item.calories} cal`;
                         if (item.protein)
                             itemText += `${item.calories ? ',' : ''} ${item.protein}g protein`;
+                        if (item.carbs)
+                            itemText += `${(item.calories || item.protein) ? ',' : ''} ${item.carbs}g carbs`;
+                        if (item.fat)
+                            itemText += `${(item.calories || item.protein || item.carbs) ? ',' : ''} ${item.fat}g fat`;
                     }
                     
                     listItem.innerHTML = itemText;
